@@ -866,14 +866,12 @@ h1, h2, h3, h4, h5, h6 {
 /* ── Responsive ── */
 @media (max-width: 992px) {
     #gameCanvas {
-        width: 100%;
+        max-width: 100%;
         height: auto;
-        max-width: 500px;
     }
 
     #gameContainer {
-        width: 100%;
-        max-width: 500px;
+        max-width: 100%;
         margin: 0 auto;
     }
 
@@ -912,7 +910,7 @@ h1, h2, h3, h4, h5, h6 {
 
 @media (max-width: 576px) {
     #gameCanvas {
-        max-width: 350px;
+        max-width: 100%;
     }
 
     .hero-title {

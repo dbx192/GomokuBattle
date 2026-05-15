@@ -15,6 +15,10 @@ class MoveResponse(BaseModel):
     winner: Optional[str] = None
     winning_line: Optional[List[List[int]]] = None
 
+class AiMoveResponse(BaseModel):
+    player_move: MoveResponse
+    ai_move: Optional[MoveResponse] = None
+
 class GameStartResponse(BaseModel):
     game_id: int
     board_size: int = 15

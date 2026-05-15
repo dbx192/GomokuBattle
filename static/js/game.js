@@ -5,7 +5,7 @@ const PIECE_RADIUS = 16;
 
 let canvas, ctx;
 let gameId = null;
-let board = [];
+let board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
 let currentPlayer = 'black';
 let isMyTurn = true;
 let gameOver = false;
