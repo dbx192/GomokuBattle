@@ -65,6 +65,7 @@ function showUserInfo(user) {
     localStorage.setItem('user', JSON.stringify(user));
     $('#userInfo').show();
     $('#loginPrompt').hide();
+    $('#loginPromptCard').hide();
     $('#authNav').html(`
         <li class="nav-item dropdown">
             <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
@@ -82,7 +83,8 @@ function showUserInfo(user) {
     const total = user.wins + user.losses;
     const winRate = total > 0 ? ((user.wins / total) * 100).toFixed(1) : 0;
     $('#userWinRate').text(winRate + '%');
-    
+    $('#userAvatar').text(user.username.charAt(0).toUpperCase());
+
     $('#logoutBtn').off('click').on('click', logout);
 }
 

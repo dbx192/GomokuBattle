@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>房间对战 — GomokuBattle</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.css" rel="stylesheet">
+    <link href="/static/css/main.css" rel="stylesheet">
+</head>
+<body>
+
+<!-- ═══════════════ NAVBAR ═══════════════ -->
+<nav class="navbar navbar-expand-lg navbar-dark sticky-top">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="/">
+            <i class="bi bi-grid-3x3-gap-fill"></i>GomokuBattle
+        </a>
+        <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item"><a class="nav-link" href="/"><i class="bi bi-house"></i> 首页</a></li>
+                <li class="nav-item"><a class="nav-link" href="/game"><i class="bi bi-cpu"></i> 人机对战</a></li>
+                <li class="nav-item"><a class="nav-link active" href="/room"><i class="bi bi-people"></i> 房间对战</a></li>
+            </ul>
+            <ul class="navbar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="/"><i class="bi bi-house"></i> 返回首页</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container py-4">
+
+    <!-- ═══════════ LOBBY VIEW ═══════════ -->
+    <div id="lobbyView" class="page-section">
+        <div class="row g-4">
+
+            <!-- Left: Create / Join Room -->
+            <div class="col-lg-4">
+                <!-- Create Room -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <i class="bi bi-plus-circle"></i> 创建房间
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">创建一个房间，邀请好友加入对战</p>
+                        <button id="createRoomBtn" class="btn btn-primary w-100">
+                            <i class="bi bi-plus-circle"></i> 创建房间
+                        </button>
+
+                        <!-- Room code display (hidden until created) -->
+                        <div id="roomCodeDisplay" class="text-center mt-3" style="display:none;">
+                            <p class="text-muted small mb-2">房间代码（分享给好友）</p>
+                            <div class="room-code-display" id="roomCode">------</div>
+                            <p class="text-muted small mt-2">等待对手加入...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Join Room -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-box-arrow-in-right"></i> 加入房间
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">输入6位房间代码加入对战</p>
+                        <div class="mb-3">
+                            <label class="form-label">房间代码</label>
+                            <input type="text" id="joinRoomCode" class="form-control text-uppercase"
+                                   placeholder="例如：ABC123" maxlength="6"
+                                   style="font-family:var(--font-mono);font-size:1.2rem;text-align:center;letter-spacing:0.3em;">
+                        </div>
+                        <button id="joinRoomBtn" class="btn btn-success w-100">
+                            <i class="bi bi-box-arrow-in-right"></i> 加入房间
+                        </button>
+                        <p class="text-muted small mt-2 text-center">
+                            <i class="bi bi-info-circle"></i> 点击下方房间卡片可快速填入代码
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Room List -->
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-list-ul"></i> 等待中的房间</span>
+                        <small class="text-muted">每5秒自动刷新</small>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="list-group list-group-flush" id="roomList">
+                            <div class="list-group-item text-center text-muted py-4">
+                                <i class="bi bi-hourglass-split"></i> 加载中...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ═══════════ GAME VIEW ═══════════ -->
+    <div id="gameView" class="page-section" style="display:none;">
+        <div class="row g-4">
+
+            <!-- Left Sidebar -->
+            <div class="col-lg-3">
+                <!-- Player Info -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <i class="bi bi-people"></i> 对局信息
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div class="text-center">
+                                <span class="piece-black d-inline-block" style="width:28px;height:28px;"></span>
+                                <div class="mt-1"><small>黑棋</small></div>
+                                <small class="text-muted" id="blackPlayer">—</small>
+                            </div>
+                            <span class="badge bg-secondary">VS</span>
+                            <div class="text-center">
+                                <span class="piece-white d-inline-block" style="width:28px;height:28px;border:2px solid rgba(255,255,255,0.1);"></span>
+                                <div class="mt-1"><small>白棋</small></div>
+                                <small class="text-muted" id="whitePlayer">等待中...</small>
+                            </div>
+                        </div>
+
+                        <div id="yourColorInfo" style="display:none;" class="text-center mb-2">
+                            <small class="text-muted">你的棋子：</small>
+                            <strong id="yourColor">—</strong>
+                        </div>
+
+                        <div id="roomStatus" class="badge bg-warning w-100 py-2 mb-3">等待对手加入...</div>
+
+                        <button id="undoBtn" class="btn btn-outline-warning w-100">
+                            <i class="bi bi-arrow-counterclockwise"></i> 请求悔棋
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center: Game Board -->
+            <div class="col-lg-9">
+                <div class="d-flex flex-column align-items-center position-relative">
+                    <!-- Waiting overlay -->
+                    <div id="waitingOverlay"
+                         class="position-absolute d-flex flex-column align-items-center justify-content-center"
+                         style="top:6px;left:6px;right:6px;bottom:6px;z-index:10;border-radius:4px;">
+                        <div class="spinner-border mb-3"></div>
+                        <p class="text-gold fw-bold">等待对手加入...</p>
+                    </div>
+
+                    <div id="gameContainer" class="mb-3">
+                        <canvas id="gameCanvas"></canvas>
+                    </div>
+
+                    <p class="text-muted text-center" style="font-size:0.85rem;">
+                        <i class="bi bi-info-circle"></i> 连接建立后即可开始对弈
+                    </p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<!-- ═══════════════ RESULT MODAL ═══════════════ -->
+<div class="modal fade" id="resultModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">对局结束</h5>
+            </div>
+            <div class="modal-body text-center py-4">
+                <i id="resultIcon" style="font-size:3rem;"></i>
+                <h4 class="mt-3" id="resultText">—</h4>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button class="btn btn-primary" data-bs-dismiss="modal" onclick="location.href='/room'">
+                    <i class="bi bi-plus-circle"></i> 新房间
+                </button>
+                <a href="/" class="btn btn-outline-light">
+                    <i class="bi bi-house"></i> 返回首页
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════ SCRIPTS ═══════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.js"></script>
+<script src="/static/js/main.js"></script>
+<script src="/static/js/room.js"></script>
+</body>
+</html>
