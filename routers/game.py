@@ -9,6 +9,7 @@ from schemas.game import (
     MoveRequest,
     MoveResponse,
     AiMoveResponse,
+    UndoRequest,
     UndoResponse,
     GameRecordResponse,
 )
@@ -132,7 +133,7 @@ async def make_ai_move(
 
 @router.post("/ai/undo", response_model=ResponseModel[UndoResponse])
 async def undo_ai_move(
-    move_data: MoveRequest,
+    move_data: UndoRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

@@ -64,16 +64,25 @@ def join_room(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    room = (
-        db.query(Room)
-        .filter(Room.room_code == room_code, Room.status == "waiting")
-        .first()
-    )
+    room = db.query(Room).filter(Room.room_code == room_code).first()
     if not room:
-        raise HTTPException(status_code=404, detail="房间不存在或已开始")
+        raise HTTPException(status_code=404, detail="房间不存在")
 
     if room.host_id == current_user.id:
         raise HTTPException(status_code=400, detail="不能加入自己的房间")
+
+    if room.guest_id == current_user.id:
+        return ResponseModel(
+            message="已加入房间",
+            data={
+                "room_id": room.id,
+                "game_id": room.game_record_id,
+                "player_color": "white",
+            },
+        )
+
+    if room.status != "waiting":
+        raise HTTPException(status_code=404, detail="房间不存在或已开始")
 
     room.guest_id = current_user.id
     room.status = "playing"
@@ -87,12 +96,12 @@ def join_room(
         status="in_progress",
     )
     db.add(game_record)
+    db.flush()
     room.game_record_id = game_record.id
     db.commit()
     db.refresh(room)
 
     room_games[room.id] = game
-    room_connections[room.id] = []
 
     return ResponseModel(
         message="加入成功",
@@ -122,7 +131,7 @@ def get_room_info(
     )
 
 
-@router.post("/ws/{room_id}")
+@router.websocket("/ws/{room_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""):
     db = SessionLocal()
     try:
@@ -141,9 +150,28 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
             await websocket.close(code=4003)
             return
 
+        await websocket.accept()
+
         if room_id not in room_connections:
             room_connections[room_id] = []
         room_connections[room_id].append(websocket)
+
+        if (
+            room_id not in room_games
+            and room.status == "playing"
+            and room.game_record_id
+        ):
+            game_record = (
+                db.query(GameRecord)
+                .filter(GameRecord.id == room.game_record_id)
+                .first()
+            )
+            if game_record:
+                game = GomokuGame()
+                for move in game_record.moves or []:
+                    if len(move) >= 3:
+                        game.add_move(move[0], move[1], move[2])
+                room_games[room_id] = game
 
         if room.host_id == user_id:
             await websocket.send_json({"type": "player_color", "color": "black"})
@@ -160,9 +188,22 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
             }
         )
 
-        for conn in room_connections[room_id]:
-            if conn != websocket:
-                await conn.send_json({"type": "opponent_joined"})
+        if len(room_connections[room_id]) >= 2:
+            host_conn = room_connections[room_id][0]
+            await host_conn.send_json({"type": "opponent_joined"})
+
+            for conn in room_connections[room_id]:
+                await conn.send_json(
+                    {
+                        "type": "game_state",
+                        "game": (
+                            room_games[room_id].to_dict()
+                            if room_id in room_games
+                            else None
+                        ),
+                        "status": "playing",
+                    }
+                )
 
         while True:
             data = await websocket.receive_json()
@@ -242,7 +283,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                     continue
 
                 game = room_games[room_id]
-                game.undo_move()
+                undone = game.undo_move()
+                if not undone:
+                    continue
+
+                row, col, player = undone
+                player_str = "black" if player == GomokuGame.BLACK else "white"
 
                 game_record = (
                     db.query(GameRecord)
@@ -254,7 +300,49 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                     db.commit()
 
                 for conn in room_connections[room_id]:
-                    await conn.send_json({"type": "undo"})
+                    await conn.send_json(
+                        {"type": "undo", "row": row, "col": col, "player": player_str}
+                    )
+
+            elif data["type"] == "timeout":
+                if room_id not in room_games:
+                    continue
+
+                player_color = "black" if room.host_id == user_id else "white"
+                winner_color = "white" if player_color == "black" else "black"
+                winner_stone = GomokuGame.WHITE if player_color == "black" else GomokuGame.BLACK
+
+                game_record = (
+                    db.query(GameRecord)
+                    .filter(GameRecord.id == room.game_record_id)
+                    .first()
+                )
+                if game_record:
+                    game_record.winner_id = (
+                        room.host_id if winner_stone == GomokuGame.BLACK else room.guest_id
+                    )
+                    game_record.status = "completed"
+                    room.status = "completed"
+
+                    winner_user = db.query(User).filter(User.id == game_record.winner_id).first()
+                    loser_user = db.query(User).filter(
+                        User.id == (room.guest_id if winner_stone == GomokuGame.BLACK else room.host_id)
+                    ).first()
+                    if winner_user:
+                        winner_user.wins += 1
+                    if loser_user:
+                        loser_user.losses += 1
+                    db.commit()
+
+                for conn in room_connections[room_id]:
+                    await conn.send_json({
+                        "type": "move",
+                        "row": -1,
+                        "col": -1,
+                        "player": winner_color,
+                        "game_over": True,
+                        "winning_line": None,
+                    })
 
     except WebSocketDisconnect:
         if room_id in room_connections:

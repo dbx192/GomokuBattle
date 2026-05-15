@@ -7,7 +7,7 @@ let canvas, ctx;
 let roomId = null;
 let gameId = null;
 let playerColor = null;
-let board = [];
+let board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
 let currentPlayer = 'black';
 let isMyTurn = false;
 let gameOver = false;
@@ -15,6 +15,14 @@ let winningLine = null;
 let lastMove = null;
 let ws = null;
 let gameStarted = false;
+
+let roomListInterval = null;
+let roomCheckInterval = null;
+let roomExpireTime = null;
+let roomCountdownInterval = null;
+let turnTimerInterval = null;
+let turnTimeLeft = 60;
+const TURN_TIME_LIMIT = 60;
 
 $(function() {
     canvas = document.getElementById('gameCanvas');
@@ -32,7 +40,8 @@ $(function() {
     
     drawBoard();
     loadRoomList();
-    
+    roomListInterval = setInterval(loadRoomList, 5000);
+
     checkAuth();
 });
 
@@ -63,6 +72,13 @@ function checkAuth() {
                     localStorage.removeItem('user');
                     location.href = '/';
                 });
+
+                const urlParams = new URLSearchParams(window.location.search);
+                const roomCode = urlParams.get('code');
+                if (roomCode) {
+                    $('#joinRoomCode').val(roomCode.toUpperCase());
+                    joinRoom();
+                }
             }
         })
         .fail(() => {
@@ -71,18 +87,151 @@ function checkAuth() {
         });
 }
 
+function stopRoomListPolling() {
+    if (roomListInterval) {
+        clearInterval(roomListInterval);
+        roomListInterval = null;
+    }
+}
+
+function startRoomExpiryCheck() {
+    roomExpireTime = Date.now() + 5 * 60 * 1000;
+    
+    if (roomCountdownInterval) clearInterval(roomCountdownInterval);
+    roomCountdownInterval = setInterval(() => {
+        if (!roomExpireTime || gameStarted) {
+            clearInterval(roomCountdownInterval);
+            roomCountdownInterval = null;
+            return;
+        }
+        const remaining = Math.max(0, roomExpireTime - Date.now());
+        const mins = Math.floor(remaining / 60000);
+        const secs = Math.floor((remaining % 60000) / 1000);
+        $('#roomStatus').text(`等待对手加入... ${mins}:${secs.toString().padStart(2, '0')}`);
+        
+        if (remaining <= 0) {
+            clearInterval(roomCountdownInterval);
+            roomCountdownInterval = null;
+        }
+    }, 1000);
+    
+    if (roomCheckInterval) clearInterval(roomCheckInterval);
+    roomCheckInterval = setInterval(() => {
+        if (!roomId || gameStarted) {
+            clearInterval(roomCheckInterval);
+            roomCheckInterval = null;
+            return;
+        }
+        API.get('/api/room/info/' + roomId)
+            .done(res => {
+                if (res.code === 200) {
+                    if (res.data.status === 'expired' || res.data.status === 'completed') {
+                        clearInterval(roomCheckInterval);
+                        clearInterval(roomCountdownInterval);
+                        roomCheckInterval = null;
+                        roomCountdownInterval = null;
+                        toastr.warning('房间已过期，请重新创建');
+                        backToLobby();
+                    }
+                }
+            });
+    }, 5000);
+}
+
+function backToLobby() {
+    if (ws) { ws.close(); ws = null; }
+    roomId = null;
+    gameId = null;
+    playerColor = null;
+    gameStarted = false;
+    gameOver = false;
+    isMyTurn = false;
+    winningLine = null;
+    lastMove = null;
+    currentPlayer = 'black';
+    board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+    
+    $('#gameView').hide();
+    $('#lobbyView').show();
+    $('#createRoomBtn').prop('disabled', false).html('<i class="bi bi-plus-circle"></i> 创建房间');
+    roomListInterval = setInterval(loadRoomList, 5000);
+    loadRoomList();
+}
+
+function startTurnTimer() {
+    stopTurnTimer();
+    turnTimeLeft = TURN_TIME_LIMIT;
+    $('#turnTimer').show();
+    $('#turnTimeLeft').text(turnTimeLeft);
+    
+    turnTimerInterval = setInterval(() => {
+        turnTimeLeft--;
+        $('#turnTimeLeft').text(turnTimeLeft);
+        
+        if (turnTimeLeft <= 10) {
+            $('#turnTimer').removeClass('bg-info bg-warning').addClass('bg-danger');
+        } else if (turnTimeLeft <= 20) {
+            $('#turnTimer').removeClass('bg-info bg-danger').addClass('bg-warning');
+        }
+        
+        if (turnTimeLeft <= 0) {
+            stopTurnTimer();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'timeout' }));
+            }
+            toastr.error('思考超时！');
+            gameOver = true;
+            const winner = playerColor === 'black' ? 'white' : 'black';
+            endGame(winner, null);
+        }
+    }, 1000);
+}
+
+function stopTurnTimer() {
+    if (turnTimerInterval) {
+        clearInterval(turnTimerInterval);
+        turnTimerInterval = null;
+    }
+    $('#turnTimer').removeClass('bg-warning bg-danger').addClass('bg-info');
+    $('#turnTimer').hide();
+}
+
 function createRoom() {
     API.post('/api/room/create')
         .done(res => {
             if (res.code === 200) {
+                stopRoomListPolling();
                 roomId = res.data.id;
-                $('#roomCodeDisplay').show();
-                $('#roomCode').text(res.data.room_code);
+                playerColor = 'black';
+                board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+                
+                $('#lobbyView').hide();
+                $('#gameView').show();
+                $('#yourColorInfo').show();
+                $('#yourColor').text('黑棋').addClass('text-dark');
+                $('#blackPlayer').text('你');
+                $('#whitePlayer').text('等待中...');
+                
+                $('#gameRoomCodeCard').show();
+                $('#gameRoomCode').text(res.data.room_code);
                 $('#createRoomBtn').prop('disabled', true).html('<i class="bi bi-check"></i> 房间已创建');
                 $('#waitingOverlay').show();
                 $('#roomStatus').text('等待对手加入...').removeClass('bg-success').addClass('bg-warning');
                 
+                $('#shareHint2').on('click', function() {
+                    const roomCode = $('#gameRoomCode').text();
+                    const joinUrl = `${window.location.origin}/room?code=${roomCode}`;
+                    const shareText = `来一局五子棋吧！我已经准备好棋盘了，等你来挑战 🎯\n\n加入链接：${joinUrl}\n房间代码：${roomCode}`;
+                    
+                    navigator.clipboard.writeText(shareText).then(() => {
+                        toastr.success('分享链接已复制到剪贴板！');
+                    }).catch(() => {
+                        toastr.error('复制失败，请手动复制');
+                    });
+                });
+                
                 connectWebSocket();
+                startRoomExpiryCheck();
             }
         })
         .fail(xhr => {
@@ -100,6 +249,7 @@ function joinRoom() {
     API.post('/api/room/join/' + code)
         .done(res => {
             if (res.code === 200) {
+                stopRoomListPolling();
                 roomId = res.data.room_id;
                 gameId = res.data.game_id;
                 playerColor = res.data.player_color;
@@ -110,6 +260,18 @@ function joinRoom() {
                 $('#gameView').show();
                 $('#yourColorInfo').show();
                 $('#yourColor').text(playerColor === 'black' ? '黑棋' : '白棋').addClass(playerColor === 'black' ? 'text-dark' : 'text-white');
+                
+                $('#gameRoomCodeCard').show();
+                $('#gameRoomCode').text(code);
+                $('#waitingOverlay').hide();
+                $('#roomStatus').text('游戏进行中').removeClass('bg-warning').addClass('bg-success');
+                gameStarted = true;
+                
+                if (playerColor === 'white') {
+                    $('#whitePlayer').text('你');
+                    $('#blackPlayer').text('对手');
+                    isMyTurn = false;
+                }
                 
                 connectWebSocket();
                 loadRoomInfo();
@@ -127,8 +289,6 @@ function loadRoomList() {
                 renderRoomList(res.data);
             }
         });
-    
-    setInterval(loadRoomList, 5000);
 }
 
 function renderRoomList(rooms) {
@@ -218,22 +378,32 @@ function handleWSMessage(data) {
             
             if (playerColor === 'black') {
                 isMyTurn = true;
+                startTurnTimer();
             }
             break;
             
         case 'game_state':
-            if (data.game) {
-                board = data.game.board;
+            if (data.game && data.game.board && Array.isArray(data.game.board)) {
+                for (let r = 0; r < Math.min(BOARD_SIZE, data.game.board.length); r++) {
+                    if (!Array.isArray(data.game.board[r])) continue;
+                    for (let c = 0; c < Math.min(BOARD_SIZE, data.game.board[r].length); c++) {
+                        const val = data.game.board[r][c];
+                        board[r][c] = val === 1 ? 'black' : (val === 2 ? 'white' : null);
+                    }
+                }
                 const moves = data.game.moves || [];
-                if (moves.length > 0) {
-                    lastMove = { row: moves[moves.length - 1][0], col: moves[moves.length - 1][1], player: moves[moves.length - 1][2] === 1 ? 'black' : 'white' };
+                if (moves.length > 0 && Array.isArray(moves[moves.length - 1])) {
+                    const last = moves[moves.length - 1];
+                    lastMove = { row: last[0], col: last[1], player: last[2] === 1 ? 'black' : 'white' };
                 }
                 currentPlayer = data.game.current_player === 1 ? 'black' : 'white';
                 
                 if (playerColor === currentPlayer) {
                     isMyTurn = true;
+                    startTurnTimer();
                 } else {
                     isMyTurn = false;
+                    stopTurnTimer();
                 }
             }
             
@@ -247,32 +417,31 @@ function handleWSMessage(data) {
             break;
             
         case 'move':
-            board[data.row][data.col] = data.player;
-            lastMove = { row: data.row, col: data.col, player: data.player };
+            if (data.row != null && data.col != null && data.row >= 0 && data.col >= 0) {
+                board[data.row][data.col] = data.player;
+                lastMove = { row: data.row, col: data.col, player: data.player };
+            }
+            currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
+            isMyTurn = (playerColor === currentPlayer);
+            if (isMyTurn) { startTurnTimer(); } else { stopTurnTimer(); }
             drawBoard();
             
-            if (data.player === currentPlayer) {
-                isMyTurn = true;
-            } else {
-                isMyTurn = false;
-            }
-            
             if (data.game_over) {
+                stopTurnTimer();
                 endGame(data.player, data.winning_line);
             }
             break;
             
         case 'undo':
-            const moves = Object.values(board).flat().filter(x => x !== null);
-            if (moves.length > 0) {
-                const lastMovePos = findLastMove();
-                if (lastMovePos) {
-                    board[lastMovePos.row][lastMovePos.col] = null;
-                    lastMove = findLastMove();
-                }
+            if (data.row !== undefined && data.col !== undefined) {
+                board[data.row][data.col] = null;
+                currentPlayer = data.player === 'black' ? 'white' : 'black';
+                isMyTurn = (playerColor === currentPlayer);
+                if (isMyTurn) { startTurnTimer(); } else { stopTurnTimer(); }
+                lastMove = findLastMove();
             }
             drawBoard();
-            toastr.info('对方请求悔棋，已撤销一步');
+            toastr.info('悔棋成功');
             break;
     }
 }
@@ -299,6 +468,7 @@ function handleClick(e) {
         board[row][col] = playerColor;
         lastMove = { row, col, player: playerColor };
         isMyTurn = false;
+        stopTurnTimer();
         drawBoard();
     }
 }
@@ -324,6 +494,7 @@ function findLastMove() {
 function endGame(winner, line) {
     gameOver = true;
     winningLine = line;
+    stopTurnTimer();
     
     if (winner === playerColor) {
         $('#resultIcon').removeClass('bi-emoji-frown').addClass('bi-trophy-fill');
@@ -340,6 +511,11 @@ function endGame(winner, line) {
 }
 
 function drawBoard() {
+    if (!ctx || !canvas) return;
+    if (!board || !Array.isArray(board) || board.length < BOARD_SIZE) {
+        board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+    }
+
     const bgGrad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
     bgGrad.addColorStop(0, '#d4a574');
     bgGrad.addColorStop(0.3, '#c4956a');
@@ -372,6 +548,7 @@ function drawBoard() {
     });
     
     for (let r = 0; r < BOARD_SIZE; r++) {
+        if (!board[r] || !Array.isArray(board[r])) continue;
         for (let c = 0; c < BOARD_SIZE; c++) {
             if (board[r][c]) {
                 drawPiece(r, c, board[r][c]);
@@ -392,7 +569,8 @@ function drawBoard() {
         ctx.stroke();
     }
     
-    if (winningLine) {
+    if (winningLine && Array.isArray(winningLine) && winningLine.length >= 5
+        && Array.isArray(winningLine[0]) && Array.isArray(winningLine[4])) {
         ctx.save();
         ctx.strokeStyle = 'rgba(220, 50, 30, 0.5)';
         ctx.lineWidth = 8;

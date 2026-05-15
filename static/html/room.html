@@ -57,7 +57,9 @@
 
                         <!-- Room code display (hidden until created) -->
                         <div id="roomCodeDisplay" class="text-center mt-3" style="display:none;">
-                            <p class="text-muted small mb-2">房间代码（分享给好友）</p>
+                            <p class="text-muted small mb-2" id="shareHint" style="cursor:pointer;">
+                                <i class="bi bi-clipboard"></i> 房间代码（点击分享给好友）
+                            </p>
                             <div class="room-code-display" id="roomCode">------</div>
                             <p class="text-muted small mt-2">等待对手加入...</p>
                         </div>
@@ -113,6 +115,19 @@
 
             <!-- Left Sidebar -->
             <div class="col-lg-3">
+                <!-- Room Code Card -->
+                <div class="card mb-3" id="gameRoomCodeCard" style="display:none;">
+                    <div class="card-header">
+                        <i class="bi bi-share"></i> 房间信息
+                    </div>
+                    <div class="card-body text-center">
+                        <p class="text-muted small mb-2" id="shareHint2" style="cursor:pointer;">
+                            <i class="bi bi-clipboard"></i> 点击分享给好友
+                        </p>
+                        <div class="room-code-display" id="gameRoomCode">------</div>
+                    </div>
+                </div>
+
                 <!-- Player Info -->
                 <div class="card mb-3">
                     <div class="card-header">
@@ -138,7 +153,11 @@
                             <strong id="yourColor">—</strong>
                         </div>
 
-                        <div id="roomStatus" class="badge bg-warning w-100 py-2 mb-3">等待对手加入...</div>
+                        <div id="roomStatus" class="badge bg-warning w-100 py-2 mb-2">等待对手加入...</div>
+
+                        <div id="turnTimer" class="badge bg-info w-100 py-2 mb-3" style="display:none;font-size:1rem;">
+                            <i class="bi bi-clock"></i> 剩余时间：<span id="turnTimeLeft">60</span>秒
+                        </div>
 
                         <button id="undoBtn" class="btn btn-outline-warning w-100">
                             <i class="bi bi-arrow-counterclockwise"></i> 请求悔棋

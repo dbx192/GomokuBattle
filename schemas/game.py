@@ -7,6 +7,9 @@ class MoveRequest(BaseModel):
     col: int
     game_id: Optional[int] = None
 
+class UndoRequest(BaseModel):
+    game_id: Optional[int] = None
+
 class MoveResponse(BaseModel):
     row: int
     col: int

@@ -405,11 +405,11 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ── Form Controls ── */
 .form-control {
-    background: var(--ink-dark);
-    border: 1px solid var(--border-medium);
+    background-color: #2a2a34 !important;
+    border: 1px solid #3d3d4a;
     border-radius: var(--radius-sm);
     padding: 0.7rem 1rem;
-    color: var(--text-primary);
+    color: #f5f0e8 !important;
     font-family: var(--font-body);
     transition: all var(--transition-base);
 }
@@ -417,12 +417,21 @@ h1, h2, h3, h4, h5, h6 {
 .form-control:focus {
     border-color: var(--gold);
     box-shadow: 0 0 0 3px rgba(212, 165, 116, 0.12);
-    background: var(--ink-slate);
+    background-color: #23232a !important;
     outline: none;
 }
 
 .form-control::placeholder {
-    color: var(--text-muted);
+    color: #6b6660 !important;
+    opacity: 1;
+}
+
+.form-control:-webkit-autofill,
+.form-control:-webkit-autofill:hover,
+.form-control:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--text-primary);
+    -webkit-box-shadow: 0 0 0px 1000px var(--ink-dark) inset;
+    transition: background-color 5000s ease-in-out 0s;
 }
 
 .form-label {
