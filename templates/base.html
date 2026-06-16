@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}GomokuBattle — 五子棋对战平台{% endblock %}</title>
+
+    {# ── 本地化的第三方库（不再走 CDN） ── #}
+    <link href="/static/lib/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/lib/bootstrap-icons/css/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="/static/lib/toastr/toastr.min.css" rel="stylesheet">
+    <link href="/static/css/main.css" rel="stylesheet">
+
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+
+{% include "partials/_navbar.html" %}
+
+<main>
+    {% block content %}{% endblock %}
+</main>
+
+{% include "partials/_auth_modals.html" %}
+
+{# ── 第三方脚本 ── #}
+<script src="/static/lib/jquery/jquery.min.js"></script>
+<script src="/static/lib/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/static/lib/toastr/toastr.min.js"></script>
+
+{# ── 全局通用脚本：API 封装、登录、注册、401 处理 ── #}
+<script src="/static/js/main.js"></script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

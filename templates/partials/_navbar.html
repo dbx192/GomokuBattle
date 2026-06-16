@@ -1,0 +1,47 @@
+{# ── 共用导航栏 ──
+   参数：
+     active ∈ {None, 'home', 'game', 'room'}  当前激活的导航项
+#}
+<nav class="navbar navbar-expand-lg navbar-dark sticky-top">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="/">
+            <i class="bi bi-grid-3x3-gap-fill"></i>GomokuBattle
+        </a>
+        <button class="navbar-toggler border-0" type="button"
+                data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link{% if active == 'home' %} active{% endif %}" href="/" data-page="home">
+                        <i class="bi bi-house"></i> 首页
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link{% if active == 'game' %} active{% endif %}" href="/game">
+                        <i class="bi bi-cpu"></i> 人机对战
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link{% if active == 'room' %} active{% endif %}" href="/room">
+                        <i class="bi bi-people"></i> 房间对战
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link{% if active == 'rankings' %} active{% endif %}"
+                       href="#" data-page="rankings">
+                        <i class="bi bi-trophy"></i> 排行榜
+                    </a>
+                </li>
+            </ul>
+            <ul class="navbar-nav" id="authNav">
+                <li class="nav-item" id="loginPrompt">
+                    <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#loginModal">
+                        <i class="bi bi-box-arrow-in-right"></i> 登录
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>

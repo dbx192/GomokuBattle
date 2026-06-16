@@ -1,63 +1,28 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>房间对战 — GomokuBattle</title>
+{% extends "base.html" %}
 
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.css" rel="stylesheet">
-    <link href="/static/css/main.css" rel="stylesheet">
-</head>
-<body>
+{# 房间对战页 #}
+{% set active = 'room' %}
+{% set login_hint = '登录后加入房间' %}
+{% set title = '房间对战 — GomokuBattle' %}
 
-<!-- ═══════════════ NAVBAR ═══════════════ -->
-<nav class="navbar navbar-expand-lg navbar-dark sticky-top">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="/">
-            <i class="bi bi-grid-3x3-gap-fill"></i>GomokuBattle
-        </a>
-        <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav me-auto">
-                <li class="nav-item"><a class="nav-link" href="/"><i class="bi bi-house"></i> 首页</a></li>
-                <li class="nav-item"><a class="nav-link" href="/game"><i class="bi bi-cpu"></i> 人机对战</a></li>
-                <li class="nav-item"><a class="nav-link active" href="/room"><i class="bi bi-people"></i> 房间对战</a></li>
-            </ul>
-            <ul class="navbar-nav" id="authNav">
-                <li class="nav-item" id="loginPrompt">
-                    <a class="nav-link" href="/">
-                        <i class="bi bi-box-arrow-in-right"></i> 前往登录
-                    </a>
-                </li>
-            </ul>
-        </div>
-    </div>
-</nav>
-
+{% block content %}
 <div class="container py-4">
 
-    <!-- ═══════════ LOBBY VIEW ═══════════ -->
+    {# ═══════════ 大厅视图 ═══════════ #}
     <div id="lobbyView" class="page-section">
         <div class="row g-4">
 
-            <!-- Left: Create / Join Room -->
+            {# ── 左侧：创建 / 加入房间 ── #}
             <div class="col-lg-4">
-                <!-- Create Room -->
                 <div class="card mb-3">
-                    <div class="card-header">
-                        <i class="bi bi-plus-circle"></i> 创建房间
-                    </div>
+                    <div class="card-header"><i class="bi bi-plus-circle"></i> 创建房间</div>
                     <div class="card-body">
-                        <p class="text-muted small mb-3">创建一个房间，邀请好友加入对战（5分钟内未匹配自动关闭）</p>
+                        <p class="text-muted small mb-3">
+                            创建一个房间，邀请好友加入对战（5分钟内未匹配自动关闭）
+                        </p>
                         <button id="createRoomBtn" class="btn btn-primary w-100">
                             <i class="bi bi-plus-circle"></i> 创建房间
                         </button>
-
-                        <!-- Room code display (hidden until created) -->
                         <div id="roomCodeDisplay" class="text-center mt-3" style="display:none;">
                             <p class="text-muted small mb-2" id="shareHint" style="cursor:pointer;">
                                 <i class="bi bi-clipboard"></i> 房间代码（点击分享给好友）
@@ -68,11 +33,8 @@
                     </div>
                 </div>
 
-                <!-- Join Room -->
                 <div class="card">
-                    <div class="card-header">
-                        <i class="bi bi-box-arrow-in-right"></i> 加入房间
-                    </div>
+                    <div class="card-header"><i class="bi bi-box-arrow-in-right"></i> 加入房间</div>
                     <div class="card-body">
                         <p class="text-muted small mb-3">输入6位房间代码加入对战</p>
                         <div class="mb-3">
@@ -91,22 +53,22 @@
                 </div>
             </div>
 
-            <!-- Right: Tabs (Active / History) -->
+            {# ── 右侧：等待中 / 历史 Tab ── #}
             <div class="col-lg-8">
                 <div class="card lobby-tabs-card">
                     <div class="card-header p-0">
                         <ul class="nav nav-tabs card-header-tabs" id="roomTabs" role="tablist">
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link active" id="tab-active-btn" data-bs-toggle="tab"
-                                        data-bs-target="#tab-active" type="button">
+                                <button class="nav-link active" id="tab-active-btn"
+                                        data-bs-toggle="tab" data-bs-target="#tab-active" type="button">
                                     <i class="bi bi-broadcast"></i>
                                     <span class="tab-text">等待中的房间</span>
                                     <span class="tab-badge" id="activeRoomCount">0</span>
                                 </button>
                             </li>
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="tab-history-btn" data-bs-toggle="tab"
-                                        data-bs-target="#tab-history" type="button">
+                                <button class="nav-link" id="tab-history-btn"
+                                        data-bs-toggle="tab" data-bs-target="#tab-history" type="button">
                                     <i class="bi bi-clock-history"></i>
                                     <span class="tab-text">历史房间</span>
                                     <span class="tab-badge" id="historyRoomCount">0</span>
@@ -116,7 +78,6 @@
                     </div>
                     <div class="card-body p-0">
                         <div class="tab-content">
-                            <!-- Active rooms tab -->
                             <div class="tab-pane fade show active" id="tab-active" role="tabpanel">
                                 <div class="tab-toolbar">
                                     <small class="text-muted">
@@ -130,7 +91,6 @@
                                     </div>
                                 </div>
                             </div>
-                            <!-- History tab -->
                             <div class="tab-pane fade" id="tab-history" role="tabpanel">
                                 <div class="tab-toolbar">
                                     <small class="text-muted">
@@ -143,7 +103,6 @@
                                         <span>加载中...</span>
                                     </div>
                                 </div>
-                                <!-- Pagination (用自定义 button，不用 Bootstrap pagination，避开冲突) -->
                                 <div class="lobby-pagination is-hidden" id="historyPagination">
                                     <button type="button" class="page-btn" id="hp-prev" aria-label="上一页">
                                         <i class="bi bi-chevron-left"></i>
@@ -162,17 +121,13 @@
         </div>
     </div>
 
-    <!-- ═══════════ GAME VIEW ═══════════ -->
+    {# ═══════════ 对局视图 ═══════════ #}
     <div id="gameView" class="page-section" style="display:none;">
         <div class="row g-4">
 
-            <!-- Left Sidebar -->
             <div class="col-lg-3">
-                <!-- Room Code Card -->
                 <div class="card mb-3" id="gameRoomCodeCard" style="display:none;">
-                    <div class="card-header">
-                        <i class="bi bi-share"></i> 房间信息
-                    </div>
+                    <div class="card-header"><i class="bi bi-share"></i> 房间信息</div>
                     <div class="card-body text-center">
                         <p class="text-muted small mb-2" id="shareHint2" style="cursor:pointer;">
                             <i class="bi bi-clipboard"></i> 点击分享给好友
@@ -181,11 +136,8 @@
                     </div>
                 </div>
 
-                <!-- Player Info -->
                 <div class="card mb-3">
-                    <div class="card-header">
-                        <i class="bi bi-people"></i> 对局信息
-                    </div>
+                    <div class="card-header"><i class="bi bi-people"></i> 对局信息</div>
                     <div class="card-body">
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="text-center">
@@ -195,7 +147,8 @@
                             </div>
                             <span class="badge bg-secondary">VS</span>
                             <div class="text-center">
-                                <span class="piece-white d-inline-block" style="width:28px;height:28px;border:2px solid rgba(255,255,255,0.1);"></span>
+                                <span class="piece-white d-inline-block"
+                                      style="width:28px;height:28px;border:2px solid rgba(255,255,255,0.1);"></span>
                                 <div class="mt-1"><small>白棋</small></div>
                                 <small class="text-muted" id="whitePlayer">等待中...</small>
                             </div>
@@ -208,7 +161,8 @@
 
                         <div id="roomStatus" class="badge bg-warning w-100 py-2 mb-2">等待对手加入...</div>
 
-                        <div id="turnTimer" class="badge bg-info w-100 py-2 mb-2" style="display:none;font-size:1rem;">
+                        <div id="turnTimer" class="badge bg-info w-100 py-2 mb-2"
+                             style="display:none;font-size:1rem;">
                             <i class="bi bi-clock"></i> 剩余时间：<span id="turnTimeLeft">60</span>秒
                         </div>
 
@@ -219,7 +173,6 @@
                         <button id="undoBtn" class="btn btn-outline-warning w-100 mb-2">
                             <i class="bi bi-arrow-counterclockwise"></i> 请求悔棋
                         </button>
-
                         <button id="leaveRoomBtn" class="btn btn-outline-danger w-100">
                             <i class="bi bi-box-arrow-left"></i> 离开房间
                         </button>
@@ -227,12 +180,8 @@
                 </div>
             </div>
 
-            <!-- Center: Game Board -->
             <div class="col-lg-9">
                 <div class="d-flex flex-column align-items-center position-relative">
-                    <!-- Waiting overlay -->
-                    <!-- 注意：这里有 d-flex（display:flex !important），普通 .hide() 会被覆盖 -->
-                    <!-- 必须用 d-none (display:none !important) 配合，show/hide 才生效 -->
                     <div id="waitingOverlay"
                          class="position-absolute d-flex flex-column align-items-center justify-content-center d-none"
                          style="top:6px;left:6px;right:6px;bottom:6px;z-index:10;border-radius:4px;">
@@ -255,7 +204,7 @@
 
 </div>
 
-<!-- ═══════════════ RESULT MODAL ═══════════════ -->
+{# ── 对局结束 modal ── #}
 <div class="modal fade" id="resultModal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered modal-sm">
         <div class="modal-content">
@@ -277,79 +226,8 @@
         </div>
     </div>
 </div>
+{% endblock %}
 
-<!-- ═══════════════ SCRIPTS ═══════════════ -->
-<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.js"></script>
-<script src="/static/js/main.js"></script>
+{% block scripts %}
 <script src="/static/js/room.js"></script>
-
-<!-- ═══════════════ LOGIN MODAL ═══════════════ -->
-<div class="modal fade" id="loginModal" tabindex="-1" data-bs-backdrop="static">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title"><i class="bi bi-box-arrow-in-right"></i> 登录后加入房间</h5>
-                <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p class="text-muted small mb-3">
-                    <i class="bi bi-info-circle"></i> 房间对战需要登录后才能创建或加入
-                </p>
-                <form id="loginForm">
-                    <div class="mb-3">
-                        <label class="form-label">用户名</label>
-                        <input type="text" name="username" class="form-control" placeholder="请输入用户名" required autocomplete="username">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">密码</label>
-                        <input type="password" name="password" class="form-control" placeholder="请输入密码" required autocomplete="current-password">
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100 mt-2">
-                        <i class="bi bi-box-arrow-in-right"></i> 登录
-                    </button>
-                </form>
-                <div class="text-center mt-3">
-                    <small class="text-muted">还没有账号？
-                        <a href="#" class="text-gold" data-bs-toggle="modal" data-bs-target="#registerModal" data-bs-dismiss="modal">立即注册</a>
-                    </small>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ═══════════════ REGISTER MODAL ═══════════════ -->
-<div class="modal fade" id="registerModal" tabindex="-1" data-bs-backdrop="static">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header bg-success text-white">
-                <h5 class="modal-title"><i class="bi bi-person-plus"></i> 注册</h5>
-                <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="registerForm">
-                    <div class="mb-3">
-                        <label class="form-label">用户名</label>
-                        <input type="text" name="username" class="form-control" placeholder="请输入用户名" required minlength="2" maxlength="20" autocomplete="username">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">密码</label>
-                        <input type="password" name="password" class="form-control" placeholder="请输入密码（至少6位）" required minlength="6" autocomplete="new-password">
-                    </div>
-                    <button type="submit" class="btn btn-success w-100 mt-2">
-                        <i class="bi bi-person-plus"></i> 注册
-                    </button>
-                </form>
-                <div class="text-center mt-3">
-                    <small class="text-muted">已有账号？
-                        <a href="#" class="text-gold" data-bs-toggle="modal" data-bs-target="#loginModal" data-bs-dismiss="modal">返回登录</a>
-                    </small>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-</body>
-</html>
+{% endblock %}

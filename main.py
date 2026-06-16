@@ -1,11 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
 from routers import auth, game, room, ranking
 from routers.room import notify_room_expired
 import asyncio
+import traceback
 from datetime import datetime, timedelta
 from database import SessionLocal
 from models.room import Room
@@ -13,6 +15,9 @@ from models.room import Room
 app = FastAPI(title="GomokuBattle", version="1.0.0")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# 模板引擎：所有页面复用 templates/base.html，通过 {% block %} 注入内容
+templates = Jinja2Templates(directory="templates")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,19 +28,34 @@ app.add_middleware(
 )
 
 
-@app.get("/")
-async def root():
-    return FileResponse("static/html/index.html")
+def render(request: Request, template_name: str, **ctx) -> HTMLResponse:
+    """统一渲染入口：自动注入 request，方便模板里 {{ request.path }} 等使用"""
+    return templates.TemplateResponse(template_name, {"request": request, **ctx})
 
 
-@app.get("/game")
-async def game_page():
-    return FileResponse("static/html/game.html")
+# ── 全局异常兜底：500 时打印完整堆栈到控制台，避免页面静默失败 ──
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {type(exc).__name__}: {exc}"},
+    )
 
 
-@app.get("/room")
-async def room_page():
-    return FileResponse("static/html/room.html")
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    return render(request, "index.html", active="home")
+
+
+@app.get("/game", response_class=HTMLResponse)
+async def game_page(request: Request):
+    return render(request, "game.html", active="game", title="人机对战 — GomokuBattle")
+
+
+@app.get("/room", response_class=HTMLResponse)
+async def room_page(request: Request):
+    return render(request, "room.html", active="room", title="房间对战 — GomokuBattle")
 
 
 app.include_router(auth.router)
@@ -49,6 +69,7 @@ async def startup():
     init_db()
     # 把主事件循环注入 room 路由器，让 HTTP 同步端点能安全推送 WebSocket 消息
     from routers.room import manager
+
     manager.set_main_loop(asyncio.get_running_loop())
     asyncio.create_task(cleanup_expired_rooms())
 

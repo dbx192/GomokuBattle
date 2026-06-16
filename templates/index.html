@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{# 首页（默认 active） #}
+{% block content %}
+
+<div id="homePage" class="page-section">
+
+    {# ── Hero ── #}
+    <section class="hero-section">
+        <div class="container">
+            <h1 class="hero-title">
+                <span class="text-gradient">Gomoku</span>Battle
+            </h1>
+            <p class="hero-subtitle">五子连珠 · 以棋会友 · 零广告纯净对弈体验</p>
+        </div>
+    </section>
+
+    <div class="container">
+        <div class="row g-4">
+
+            {# ── 左侧：用户面板（未登录时是登录卡） ── #}
+            <div class="col-lg-3">
+                <div id="userPanel">
+                    <div id="userInfo" style="display:none;">
+                        <div class="card mb-3">
+                            <div class="card-body text-center">
+                                <div class="user-avatar-placeholder mb-3" id="userAvatar">?</div>
+                                <h5 class="mb-1" id="userName">—</h5>
+                                <span class="badge bg-primary mb-3" id="userRank">新手</span>
+                                <hr class="divider-ink">
+                                <div class="user-stats">
+                                    <div class="stat-cell">
+                                        <div class="stat-number" id="userWins">0</div>
+                                        <div class="stat-label">胜</div>
+                                    </div>
+                                    <div class="stat-cell">
+                                        <div class="stat-number" id="userLosses">0</div>
+                                        <div class="stat-label">负</div>
+                                    </div>
+                                    <div class="stat-cell">
+                                        <div class="stat-number" id="userWinRate">0%</div>
+                                        <div class="stat-label">胜率</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-lightning-charge"></i> 快速操作
+                            </div>
+                            <div class="card-body">
+                                <a href="/game" class="btn btn-primary w-100 mb-2">
+                                    <i class="bi bi-cpu"></i> 人机对战
+                                </a>
+                                <a href="/room" class="btn btn-outline-light w-100">
+                                    <i class="bi bi-people"></i> 房间对战
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="loginPromptCard">
+                        <div class="card mb-3">
+                            <div class="card-body text-center py-4">
+                                <i class="bi bi-person-circle" style="font-size:3rem;color:var(--text-muted);"></i>
+                                <p class="text-muted mt-3 mb-3">登录后开始对弈</p>
+                                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#loginModal">
+                                    <i class="bi bi-box-arrow-in-right"></i> 登录 / 注册
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# ── 右侧：模式卡 + 特性 ── #}
+            <div class="col-lg-9">
+                <div class="row g-4 mb-4">
+                    <div class="col-md-6">
+                        <a href="/game" class="text-decoration-none">
+                            <div class="game-mode-card">
+                                <i class="bi bi-cpu" style="font-size: 2.5rem;"></i>
+                                <h5 class="card-title mt-2">人机对战</h5>
+                                <p class="card-text mb-0">与 AI 对弈，磨炼棋艺</p>
+                                <small class="text-muted">支持悔棋 · 多难度 · 不限时</small>
+                            </div>
+                        </a>
+                    </div>
+                    <div class="col-md-6">
+                        <a href="/room" class="text-decoration-none">
+                            <div class="game-mode-card">
+                                <i class="bi bi-people" style="font-size: 2.5rem;"></i>
+                                <h5 class="card-title mt-2">房间对战</h5>
+                                <p class="card-text mb-0">创建或加入房间，好友对战</p>
+                                <small class="text-muted">6位房间码 · 实时对战 · 观战</small>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-sm-4">
+                        <div class="card h-100">
+                            <div class="card-body text-center py-3">
+                                <i class="bi bi-shield-check text-jade" style="font-size:1.5rem;"></i>
+                                <h6 class="mt-2 mb-0">零广告</h6>
+                                <small class="text-muted">纯净游戏体验</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="card h-100">
+                            <div class="card-body text-center py-3">
+                                <i class="bi bi-lightning-charge text-gold" style="font-size:1.5rem;"></i>
+                                <h6 class="mt-2 mb-0">精确落子</h6>
+                                <small class="text-muted">流畅操作体验</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="card h-100">
+                            <div class="card-body text-center py-3">
+                                <i class="bi bi-bar-chart text-gold" style="font-size:1.5rem;"></i>
+                                <h6 class="mt-2 mb-0">段位系统</h6>
+                                <small class="text-muted">公平竞技匹配</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── 排行榜（通过 AJAX 加载） ── #}
+<div id="rankingsPage" class="page-section container py-4" style="display:none;">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-trophy"></i> 排行榜</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th style="width:60px;">排名</th>
+                            <th>玩家</th>
+                            <th>段位</th>
+                            <th>胜场</th>
+                            <th>负场</th>
+                            <th style="width:120px;">胜率</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rankingsTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

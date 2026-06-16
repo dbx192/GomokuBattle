@@ -3,7 +3,23 @@
    ║  Inspired by traditional board game parlors               ║
    ╚══════════════════════════════════════════════════════════╝ */
 
-@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* 本地化字体（不再走 Google CDN）：
+   - Crimson Text / JetBrains Mono 走 static/lib/fonts/ 下的 woff2
+   - 中文字符（Noto Serif SC）由系统字体兜底，体积太大不做本地化 */
+@import url('/static/lib/fonts/fonts.css');
+
+/* 中文字体系统兜底栈：优先用本机已安装的中文衬线字体 */
+@font-face {
+    font-family: 'Noto Serif SC';
+    src: local('Noto Serif SC'),
+         local('Noto Serif CJK SC'),
+         local('Source Han Serif SC'),
+         local('Source Han Serif CN'),
+         local('Songti SC'),
+         local('STSong'),
+         local('SimSun');
+    font-display: swap;
+}
 
 :root {
     /* ── Core palette ── */
@@ -54,8 +70,8 @@
     --radius-md: 8px;
     --radius-lg: 12px;
 
-    --font-display: 'Noto Serif SC', serif;
-    --font-body: 'Crimson Text', 'Noto Serif SC', Georgia, serif;
+    --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', serif;
+    --font-body: 'Crimson Text', 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', Georgia, serif;
     --font-mono: 'JetBrains Mono', 'Consolas', monospace;
 
     --transition-fast: 0.15s ease;
