@@ -36,16 +36,6 @@ const API = {
     })
 };
 
-function handleResponse(res, onSuccess, onError) {
-    if (res.code === 200 || res.code === 201) {
-        if (onSuccess) onSuccess(res.data);
-        if (res.message && res.message !== 'success') toastr.success(res.message);
-    } else {
-        toastr.error(res.message || '操作失败');
-        if (onError) onError(res);
-    }
-}
-
 function checkAuth() {
     const token = localStorage.getItem('access_token');
     if (token) {

@@ -5,7 +5,6 @@ const PIECE_RADIUS = 16;
 
 let canvas, ctx;
 let roomId = null;
-let gameId = null;
 let playerColor = null;
 let board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
 let currentPlayer = 'black';
@@ -259,7 +258,6 @@ function backToLobby() {
         ws = null;
     }
     roomId = null;
-    gameId = null;
     playerColor = null;
     gameStarted = false;
     gameOver = false;
@@ -421,7 +419,6 @@ function joinRoom() {
                 stopRoomListPolling();
                 stopRoomExpiryCheck();
                 roomId = res.data.room_id;
-                gameId = res.data.game_id;
                 playerColor = res.data.player_color;
                 gameStarted = false;
                 gameOver = false;

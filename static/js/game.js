@@ -6,7 +6,6 @@ const PIECE_RADIUS = 16;
 let canvas, ctx;
 let gameId = null;
 let board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-let currentPlayer = 'black';
 let isMyTurn = true;
 let gameOver = false;
 let winningLine = null;
@@ -75,7 +74,6 @@ function startGame() {
             if (res.code === 200) {
                 gameId = res.data.game_id;
                 board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-                currentPlayer = 'black';
                 isMyTurn = true;
                 gameOver = false;
                 winningLine = null;
@@ -203,17 +201,6 @@ function undoMove() {
         });
 }
 
-function findLastMove(player) {
-    for (let i = board.length - 1; i >= 0; i--) {
-        for (let j = board[i].length - 1; j >= 0; j--) {
-            if (board[i][j] === player) {
-                return { row: i, col: j };
-            }
-        }
-    }
-    return null;
-}
-
 function endGame(winner, line) {
     gameOver = true;
     winningLine = line;
@@ -241,7 +228,6 @@ function endGame(winner, line) {
 function restartGame() {
     gameId = null;
     board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-    currentPlayer = 'black';
     isMyTurn = true;
     gameOver = false;
     winningLine = null;
