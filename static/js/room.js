@@ -25,6 +25,13 @@ let turnTimerInterval = null;
 let turnTimeLeft = 60;
 const TURN_TIME_LIMIT = 60;
 const ROOM_EXPIRY_MS = 5 * 60 * 1000;
+const UNDO_TIMEOUT_SEC = 30;
+
+// 悔棋请求流程：
+//   requesting  = 我方刚发了请求，正在等对家回应（此时再点悔棋按钮无效）
+//   incoming   = 我方收到了对家的请求，弹窗等待我操作
+let undoFlow = null;             // 'requesting' | 'incoming' | null
+let undoCountdownTimer = null;   // 悔棋弹窗的倒计时 interval
 
 // 历史房间分页
 const HISTORY_PAGE_SIZE = 15;
@@ -52,6 +59,11 @@ $(function() {
     $('#shareHint').on('click', shareRoom);
     $('#shareHint2').on('click', shareRoom);
     $('#tab-history-btn').on('shown.bs.tab', loadHistoryList);
+
+    // 悔棋弹窗按钮
+    $('#undoAcceptBtn').on('click', () => sendUndoResponse('accept'));
+    $('#undoDeclineBtn').on('click', () => sendUndoResponse('decline'));
+    $('#undoCancelBtn').on('click', () => cancelUndoRequest());
 
     // 历史房间分页控制
     $('#hp-prev').on('click', e => {
@@ -248,6 +260,7 @@ function handleRoomExpired() {
 function backToLobby() {
     stopRoomExpiryCheck();
     stopTurnTimer();
+    closeUndoModals();  // 顺手把悔棋弹窗也关掉
     if (wsReconnectTimer) {
         clearTimeout(wsReconnectTimer);
         wsReconnectTimer = null;
@@ -824,6 +837,7 @@ function handleWSMessage(data) {
             break;
 
         case 'undo':
+            // 真正的悔棋执行：服务器在双方同意后才广播这条
             if (data.row !== undefined && data.col !== undefined) {
                 board[data.row][data.col] = null;
                 // 悔棋后应该由被悔棋方重下，所以当前玩家就是被悔棋的玩家
@@ -833,7 +847,30 @@ function handleWSMessage(data) {
                 lastMove = findLastMove();
             }
             drawBoard();
-            toastr.info('悔棋成功');
+            toastr.success('悔棋成功');
+            break;
+
+        case 'undo_request':
+            // 收到对家的悔棋请求 → 弹窗让玩家选择
+            if (undoFlow) break;  // 已有流程在进行（理论上不会到这里）
+            showUndoIncomingModal();
+            break;
+
+        case 'undo_sent':
+            // 我方刚发的请求服务器已确认收到 → 弹出"等待对方确认"弹窗
+            showUndoWaitingModal(data.timeout_sec || UNDO_TIMEOUT_SEC);
+            break;
+
+        case 'undo_declined':
+            // 对家拒绝了
+            closeUndoModals();
+            toastr.warning(data.message || '对方拒绝了你的悔棋请求');
+            break;
+
+        case 'undo_timeout':
+            // 超时未回应
+            closeUndoModals();
+            toastr.warning(data.message || '悔棋请求已超时');
             break;
 
         case 'room_expired':
@@ -883,8 +920,102 @@ function requestUndo() {
         toastr.warning('当前没有进行中的对局');
         return;
     }
+    if (undoFlow) {
+        toastr.info(undoFlow === 'requesting' ? '已发送过悔棋请求，请等待对方确认' : '请先处理对方的悔棋请求');
+        return;
+    }
+    undoFlow = 'requesting';
+    $('#undoBtn').prop('disabled', true);
     ws.send(JSON.stringify({ type: 'undo' }));
-    toastr.info('已发送悔棋请求');
+    // undo_sent 到达时会真正弹出等待弹窗（依赖服务器回执确定超时时间）
+    // 但先给一个兜底超时：万一服务器没回（断线等），10s 后强制解锁按钮
+    setTimeout(() => {
+        if (undoFlow === 'requesting') {
+            closeUndoModals();
+            toastr.warning('悔棋请求未送达，请稍后再试');
+        }
+    }, 10000);
+}
+
+function sendUndoResponse(action) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        closeUndoModals();
+        toastr.warning('连接已断开');
+        return;
+    }
+    ws.send(JSON.stringify({ type: action === 'accept' ? 'undo_accept' : 'undo_decline' }));
+    closeUndoModals();
+    if (action === 'decline') {
+        toastr.info('已拒绝悔棋请求');
+    }
+}
+
+function cancelUndoRequest() {
+    // 主动撤回已发送的悔棋请求：通知服务器"我不要了"
+    // （服务器目前没有显式 cancel 消息，但断线会被自动清理；这里只关弹窗）
+    closeUndoModals();
+    toastr.info('已撤回悔棋请求');
+}
+
+function showUndoWaitingModal(timeoutSec) {
+    undoFlow = 'requesting';
+    $('#undoWaitingCountdown').text(timeoutSec);
+    const el = document.getElementById('undoWaitingModal');
+    bootstrap.Modal.getOrCreateInstance(el).show();
+    startUndoCountdown('undoWaitingCountdown', timeoutSec, () => {
+        // 倒计时归零：弹窗还没被服务器回执关闭 → 强制清理
+        if (undoFlow === 'requesting') {
+            closeUndoModals();
+            toastr.warning('悔棋请求已超时');
+        }
+    });
+}
+
+function showUndoIncomingModal() {
+    undoFlow = 'incoming';
+    $('#undoRequestCountdown').text(UNDO_TIMEOUT_SEC);
+    const el = document.getElementById('undoRequestModal');
+    bootstrap.Modal.getOrCreateInstance(el).show();
+    startUndoCountdown('undoRequestCountdown', UNDO_TIMEOUT_SEC, () => {
+        // 超时未操作 → 自动拒绝（不弹框，避免再弹一个 confirm）
+        if (undoFlow === 'incoming') {
+            sendUndoResponse('decline');
+        }
+    });
+}
+
+function startUndoCountdown(elemId, seconds, onTimeout) {
+    stopUndoCountdown();
+    let left = seconds;
+    const el = document.getElementById(elemId);
+    if (el) el.textContent = left;
+    undoCountdownTimer = setInterval(() => {
+        left -= 1;
+        if (el) el.textContent = left;
+        if (left <= 0) {
+            stopUndoCountdown();
+            if (onTimeout) onTimeout();
+        }
+    }, 1000);
+}
+
+function stopUndoCountdown() {
+    if (undoCountdownTimer) {
+        clearInterval(undoCountdownTimer);
+        undoCountdownTimer = null;
+    }
+}
+
+function closeUndoModals() {
+    stopUndoCountdown();
+    undoFlow = null;
+    $('#undoBtn').prop('disabled', false);
+    ['undoRequestModal', 'undoWaitingModal'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const inst = bootstrap.Modal.getInstance(el);
+        if (inst) inst.hide();
+    });
 }
 
 function findLastMove() {
@@ -902,6 +1033,7 @@ function endGame(winner, line) {
     gameOver = true;
     winningLine = line;
     stopTurnTimer();
+    closeUndoModals();  // 终局了，悔棋弹窗没意义，顺手关掉
 
     if (winner === playerColor) {
         $('#resultIcon').removeClass().addClass('bi-trophy-fill');

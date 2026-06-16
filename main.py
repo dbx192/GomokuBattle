@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+import mimetypes
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,15 @@ from database import SessionLocal
 from models.room import Room
 
 app = FastAPI(title="GomokuBattle", version="1.0.0")
+
+# ── 注册常见静态资源 MIME（避免 woff2/woff 字体被当 text/plain 发送，浏览器会拒收） ──
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
+mimetypes.add_type("font/ttf", ".ttf")
+mimetypes.add_type("font/otf", ".otf")
+mimetypes.add_type("font/eot", ".eot")
+mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("application/wasm", ".wasm")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

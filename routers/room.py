@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from database import get_db, SessionLocal
 from models.user import User
 from models.room import Room
@@ -9,9 +9,11 @@ from models.game import GameRecord
 from utils.auth import decode_token, get_current_user
 from schemas.common import ResponseModel
 from services.game_service import GomokuGame
+import asyncio
 import json
 import random
 import string
+import time
 
 router = APIRouter(prefix="/api/room", tags=["房间"])
 
@@ -24,6 +26,12 @@ class RoomConnectionManager:
         self.host_conns: Dict[int, WebSocket] = {}
         self.guest_conns: Dict[int, WebSocket] = {}
         self.main_loop = None  # 启动时由 set_main_loop 注入
+        # 待处理的悔棋请求：room_id -> (请求方 user_id, 发起时间戳)
+        self.pending_undo: Dict[int, Tuple[int, float]] = {}
+        # 待处理悔棋请求的超时清理任务：room_id -> asyncio.Task
+        self.pending_undo_tasks: Dict[int, asyncio.Task] = {}
+        # 单次悔棋请求的有效秒数
+        self.UNDO_REQUEST_TIMEOUT = 30
 
     def set_main_loop(self, loop):
         self.main_loop = loop
@@ -69,6 +77,47 @@ class RoomConnectionManager:
 
     def drop_game(self, room_id: int):
         self.games.pop(room_id, None)
+
+    def clear_pending_undo(self, room_id: int):
+        """取消待处理的悔棋请求（同意/拒绝/超时/断线时调用）"""
+        self.pending_undo.pop(room_id, None)
+        task = self.pending_undo_tasks.pop(room_id, None)
+        if task and not task.done():
+            task.cancel()
+
+    async def _undo_timeout(self, room_id: int, requester_id: int):
+        """30s 后还没收到对方的回应 → 自动撤回请求并通知请求方"""
+        try:
+            await asyncio.sleep(self.UNDO_REQUEST_TIMEOUT)
+        except asyncio.CancelledError:
+            return
+        # 期间已被处理则跳过
+        if self.pending_undo.get(room_id, (None,))[0] != requester_id:
+            return
+        self.clear_pending_undo(room_id)
+        # 找到请求方的连接推送超时消息
+        room = None
+        # 通过角色反推连接
+        # requester_id 是 host 还是 guest 取决于谁连的房间，这里用 all_conns 都查一遍
+        for conn in self.all_conns(room_id):
+            try:
+                await conn.send_json({
+                    "type": "undo_timeout",
+                    "message": "对方未响应，悔棋请求已超时",
+                })
+            except Exception:
+                pass
+
+    def start_undo_request(self, room_id: int, requester_id: int) -> Optional[asyncio.Task]:
+        """发起一次悔棋请求：登记 + 启动超时任务，返回 task 用于取消"""
+        if room_id in self.pending_undo:
+            return None
+        self.pending_undo[room_id] = (requester_id, time.time())
+        if self.main_loop is None:
+            return None
+        task = self.main_loop.create_task(self._undo_timeout(room_id, requester_id))
+        self.pending_undo_tasks[room_id] = task
+        return task
 
     def push_to_host(self, room_id: int, payload: dict):
         """从同步上下文（HTTP 端点所在线程池）安全推送消息到 host 的 WebSocket"""
@@ -409,17 +458,74 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                         pass
 
             elif t == "undo":
+                # ── 悔棋请求阶段：仅登记+通知对方，不直接撤销 ──
                 if (
                     room_id not in manager.games
                     or len(manager.games[room_id].moves) < 1
                 ):
                     continue
 
+                # 已有待处理请求则忽略（防止双击重复发）
+                if room_id in manager.pending_undo:
+                    continue
+
+                requester_id = user_id
+                requester_color = "black" if room.host_id == user_id else "white"
+                manager.start_undo_request(room_id, requester_id)
+
+                # 通知双方：请求方收到"已发送"，对家收到"待确认"
+                requester_conn = (
+                    manager.host_conns.get(room_id)
+                    if requester_color == "black"
+                    else manager.guest_conns.get(room_id)
+                )
+                opponent_conn = (
+                    manager.guest_conns.get(room_id)
+                    if requester_color == "black"
+                    else manager.host_conns.get(room_id)
+                )
+
+                request_msg = {
+                    "type": "undo_sent",
+                    "timeout_sec": manager.UNDO_REQUEST_TIMEOUT,
+                }
+                opponent_msg = {
+                    "type": "undo_request",
+                    "from": requester_color,
+                }
+
+                if requester_conn:
+                    try:
+                        await requester_conn.send_json(request_msg)
+                    except Exception:
+                        pass
+                if opponent_conn:
+                    try:
+                        await opponent_conn.send_json(opponent_msg)
+                    except Exception:
+                        pass
+
+            elif t == "undo_accept":
+                # ── 对方同意：真正执行悔棋并广播 ──
+                pending = manager.pending_undo.get(room_id)
+                if not pending:
+                    continue
+                requester_id, _ = pending
+                # 只允许"被请求方"接受（也就是 user_id != requester_id）
+                if user_id == requester_id:
+                    continue
+                if (
+                    room_id not in manager.games
+                    or len(manager.games[room_id].moves) < 1
+                ):
+                    manager.clear_pending_undo(room_id)
+                    continue
+
                 game = manager.games[room_id]
                 undone = game.undo_move()
                 if not undone:
+                    manager.clear_pending_undo(room_id)
                     continue
-
                 row, col, player = undone
                 player_str = "black" if player == GomokuGame.BLACK else "white"
 
@@ -433,16 +539,40 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                     flag_modified(game_record, "moves")
                     db.commit()
 
+                manager.clear_pending_undo(room_id)
+
                 for conn in manager.all_conns(room_id):
                     try:
-                        await conn.send_json(
-                            {
-                                "type": "undo",
-                                "row": row,
-                                "col": col,
-                                "player": player_str,
-                            }
-                        )
+                        await conn.send_json({
+                            "type": "undo",
+                            "row": row,
+                            "col": col,
+                            "player": player_str,
+                        })
+                    except Exception:
+                        pass
+
+            elif t == "undo_decline":
+                # ── 对方拒绝：通知请求方并清理 ──
+                pending = manager.pending_undo.get(room_id)
+                if not pending:
+                    continue
+                requester_id, _ = pending
+                if user_id == requester_id:
+                    continue
+                manager.clear_pending_undo(room_id)
+
+                requester_conn = (
+                    manager.host_conns.get(room_id)
+                    if room.host_id == requester_id
+                    else manager.guest_conns.get(room_id)
+                )
+                if requester_conn:
+                    try:
+                        await requester_conn.send_json({
+                            "type": "undo_declined",
+                            "message": "对方拒绝了你的悔棋请求",
+                        })
                     except Exception:
                         pass
 
@@ -496,6 +626,10 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
     finally:
         try:
             manager.detach(room_id, websocket)
+            # 断线方如果是悔棋请求方 → 自动取消待处理请求（避免对方弹窗干等）
+            pending = manager.pending_undo.get(room_id)
+            if pending and pending[0] == user_id:
+                manager.clear_pending_undo(room_id)
         except Exception:
             pass
         db.close()

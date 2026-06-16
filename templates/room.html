@@ -226,6 +226,60 @@
         </div>
     </div>
 </div>
+
+{# ── 悔棋请求 modal（收到对方请求时弹出，30s 内未操作自动拒绝） ── #}
+<div class="modal fade" id="undoRequestModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">
+                    <i class="bi bi-arrow-counterclockwise"></i> 悔棋请求
+                </h5>
+            </div>
+            <div class="modal-body text-center py-3">
+                <i class="bi bi-question-circle text-warning" style="font-size:2.5rem;"></i>
+                <p class="mt-3 mb-1">对方请求悔棋</p>
+                <small class="text-muted">是否同意撤销最后一手？</small>
+                <div class="mt-3">
+                    <small class="text-muted">
+                        <i class="bi bi-clock"></i> 剩余 <span id="undoRequestCountdown">30</span> 秒
+                    </small>
+                </div>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-outline-danger" id="undoDeclineBtn">
+                    <i class="bi bi-x-lg"></i> 拒绝
+                </button>
+                <button type="button" class="btn btn-success" id="undoAcceptBtn">
+                    <i class="bi bi-check-lg"></i> 同意
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── 悔棋请求已发送（请求方等待对家回应） ── #}
+<div class="modal fade" id="undoWaitingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-hourglass-split"></i> 等待对方确认
+                </h5>
+            </div>
+            <div class="modal-body text-center py-3">
+                <div class="spinner-border text-info mb-3"></div>
+                <p class="mb-1">悔棋请求已发送</p>
+                <small class="text-muted">剩余 <span id="undoWaitingCountdown">30</span> 秒后自动取消</small>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-outline-secondary" id="undoCancelBtn">
+                    <i class="bi bi-x-lg"></i> 撤回请求
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

@@ -255,4 +255,10 @@ $(function() {
         $('#homePage').show();
         $('#rankingsPage').hide();
     });
+
+    // ── 跨页直达：?view=rankings → 直接展示排行榜（避免在 /game /room 上点排行榜无反应） ──
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('view') === 'rankings' && $('#rankingsPage').length) {
+        loadRankings();
+    }
 });
