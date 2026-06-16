@@ -14,6 +14,8 @@ let gameOver = false;
 let winningLine = null;
 let lastMove = null;
 let ws = null;
+let wsReconnectAttempts = 0;
+let wsReconnectTimer = null;
 let gameStarted = false;
 
 let roomListInterval = null;
@@ -24,6 +26,10 @@ let turnTimerInterval = null;
 let turnTimeLeft = 60;
 const TURN_TIME_LIMIT = 60;
 const ROOM_EXPIRY_MS = 5 * 60 * 1000;
+
+// 等待遮罩有 d-flex !important，jQuery .hide() 会被覆盖；用 d-none !important 才能正确隐藏
+function showWaiting() { $('#waitingOverlay').removeClass('d-none'); }
+function hideWaiting() { $('#waitingOverlay').addClass('d-none'); }
 
 $(function() {
     canvas = document.getElementById('gameCanvas');
@@ -164,18 +170,29 @@ function startRoomExpiryCheck(expiresAt) {
 
     if (roomCheckInterval) clearInterval(roomCheckInterval);
     roomCheckInterval = setInterval(() => {
-        if (!roomId || gameStarted) {
+        if (!roomId || gameOver) {
             clearInterval(roomCheckInterval);
             roomCheckInterval = null;
             return;
         }
         API.get('/api/room/info/' + roomId)
             .done(res => {
-                if (res.code === 200 && (res.data.status === 'expired' || res.data.status === 'completed')) {
+                if (res.code !== 200) return;
+                const status = res.data.status;
+                if (status === 'expired' || status === 'completed') {
                     handleRoomExpired();
+                } else if (status === 'playing' && !gameStarted) {
+                    // 对手已加入但我们没收到 opponent_joined 事件（WebSocket 短暂断开过）
+                    // 强制重连一次 WS，服务器会重发完整状态
+                    console.log('[room] status=playing detected, forcing WS reconnect');
+                    if (ws) {
+                        try { ws.close(); } catch (e) {}
+                        ws = null;
+                    }
+                    connectWebSocket();
                 }
             });
-    }, 5000);
+    }, 3000);
 }
 
 function stopRoomExpiryCheck() {
@@ -194,8 +211,13 @@ function stopRoomExpiryCheck() {
 function handleRoomExpired() {
     stopRoomExpiryCheck();
     stopTurnTimer();
+    if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+    }
+    wsReconnectAttempts = 0;
     if (ws) {
-        try { ws.close(); } catch (e) {}
+        try { ws.close(1000, 'expired'); } catch (e) {}
         ws = null;
     }
     gameOver = true;
@@ -206,8 +228,13 @@ function handleRoomExpired() {
 function backToLobby() {
     stopRoomExpiryCheck();
     stopTurnTimer();
+    if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+    }
+    wsReconnectAttempts = 0;
     if (ws) {
-        try { ws.close(); } catch (e) {}
+        try { ws.close(1000, 'leave'); } catch (e) {}
         ws = null;
     }
     roomId = null;
@@ -226,7 +253,7 @@ function backToLobby() {
     $('#createRoomBtn').prop('disabled', false).html('<i class="bi bi-plus-circle"></i> 创建房间');
     $('#createRoomBtn').show();
     $('#roomCodeDisplay').hide();
-    $('#waitingOverlay').hide();
+    hideWaiting();
     $('#undoBtn').prop('disabled', false).html('<i class="bi bi-arrow-counterclockwise"></i> 请求悔棋');
     $('#leaveRoomBtn').prop('disabled', false).html('<i class="bi bi-box-arrow-left"></i> 离开房间');
     $('#turnTimer').hide();
@@ -336,7 +363,7 @@ function createRoom() {
                 $('#gameRoomCodeCard').show();
                 $('#gameRoomCode').text(res.data.room_code);
                 $('#createRoomBtn').prop('disabled', true).html('<i class="bi bi-check"></i> 房间已创建');
-                $('#waitingOverlay').show();
+                showWaiting();
                 $('#roomStatus').text('等待对手加入...').removeClass('bg-success').addClass('bg-warning');
 
                 connectWebSocket();
@@ -394,7 +421,7 @@ function joinRoom() {
 
                 $('#gameRoomCodeCard').show();
                 $('#gameRoomCode').text(code);
-                $('#waitingOverlay').hide();
+                hideWaiting();
                 $('#roomStatus').text('对手已就位，游戏开始！').removeClass('bg-warning').addClass('bg-success');
 
                 if (playerColor === 'white') {
@@ -540,6 +567,13 @@ function connectWebSocket() {
         toastr.error('无法建立连接，缺少房间或登录信息');
         return;
     }
+    if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+    }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        return;  // 已连接
+    }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/room/ws/${roomId}?token=${encodeURIComponent(token)}`;
 
@@ -547,11 +581,13 @@ function connectWebSocket() {
         ws = new WebSocket(wsUrl);
     } catch (e) {
         toastr.error('WebSocket 创建失败：' + e.message);
+        scheduleWSReconnect();
         return;
     }
 
     ws.onopen = () => {
         console.log('WebSocket connected, roomId=' + roomId);
+        wsReconnectAttempts = 0;
     };
 
     ws.onmessage = (event) => {
@@ -577,15 +613,31 @@ function connectWebSocket() {
         } else if (ev.code === 4004) {
             toastr.error('房间不存在');
             backToLobby();
-        } else if (ev.code !== 1000 && ev.code !== 1001 && gameStarted) {
-            // 异常关闭且已开始游戏
-            toastr.warning('与服务器的连接已断开');
+        } else if (ev.code === 1000 || ev.code === 1001) {
+            // 主动关闭，不重连
+        } else if (roomId && !gameOver) {
+            // 异常关闭且还没离开房间 → 尝试重连
+            scheduleWSReconnect();
         }
     };
 
     ws.onerror = (error) => {
         console.error('WebSocket error:', error);
     };
+}
+
+function scheduleWSReconnect() {
+    if (wsReconnectTimer) return;
+    if (!roomId) return;
+    if (gameOver) return;
+    wsReconnectAttempts++;
+    const delay = Math.min(1000 * Math.pow(2, wsReconnectAttempts - 1), 8000);
+    console.log(`[ws] reconnect attempt ${wsReconnectAttempts} in ${delay}ms`);
+    wsReconnectTimer = setTimeout(() => {
+        wsReconnectTimer = null;
+        if (!roomId || gameOver) return;
+        connectWebSocket();
+    }, delay);
 }
 
 function handleWSMessage(data) {
@@ -599,7 +651,7 @@ function handleWSMessage(data) {
             break;
 
         case 'opponent_joined':
-            $('#waitingOverlay').hide();
+            hideWaiting();
             $('#roomStatus').text('游戏开始').removeClass('bg-warning').addClass('bg-success');
             gameStarted = true;
             stopRoomExpiryCheck();
@@ -637,7 +689,7 @@ function handleWSMessage(data) {
                 $('#roomStatus').text('游戏进行中').removeClass('bg-warning').addClass('bg-success');
                 gameStarted = true;
                 stopRoomExpiryCheck();
-                $('#waitingOverlay').hide();
+                hideWaiting();
                 if (playerColor === currentPlayer) {
                     isMyTurn = true;
                     startTurnTimer();

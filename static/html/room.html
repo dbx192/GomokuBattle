@@ -205,8 +205,10 @@
             <div class="col-lg-9">
                 <div class="d-flex flex-column align-items-center position-relative">
                     <!-- Waiting overlay -->
+                    <!-- 注意：这里有 d-flex（display:flex !important），普通 .hide() 会被覆盖 -->
+                    <!-- 必须用 d-none (display:none !important) 配合，show/hide 才生效 -->
                     <div id="waitingOverlay"
-                         class="position-absolute d-flex flex-column align-items-center justify-content-center"
+                         class="position-absolute d-flex flex-column align-items-center justify-content-center d-none"
                          style="top:6px;left:6px;right:6px;bottom:6px;z-index:10;border-radius:4px;">
                         <div class="spinner-border mb-3"></div>
                         <p class="text-gold fw-bold">等待对手加入...</p>

@@ -22,6 +22,10 @@ class RoomConnectionManager:
         self.games: Dict[int, GomokuGame] = {}
         self.host_conns: Dict[int, WebSocket] = {}
         self.guest_conns: Dict[int, WebSocket] = {}
+        self.main_loop = None  # 启动时由 set_main_loop 注入
+
+    def set_main_loop(self, loop):
+        self.main_loop = loop
 
     def attach(self, room_id: int, user_id: int, ws: WebSocket) -> str:
         """根据 user_id 归类到 host 或 guest 连接。返回角色 'host' | 'guest'"""
@@ -64,6 +68,21 @@ class RoomConnectionManager:
 
     def drop_game(self, room_id: int):
         self.games.pop(room_id, None)
+
+    def push_to_host(self, room_id: int, payload: dict):
+        """从同步上下文（HTTP 端点所在线程池）安全推送消息到 host 的 WebSocket"""
+        host_c = self.host_conns.get(room_id)
+        if host_c is None:
+            return False
+        if self.main_loop is None:
+            return False
+        try:
+            import asyncio
+
+            asyncio.run_coroutine_threadsafe(host_c.send_json(payload), self.main_loop)
+            return True
+        except Exception:
+            return False
 
 
 manager = RoomConnectionManager()
@@ -194,6 +213,21 @@ def join_room(
 
     manager.games[room.id] = GomokuGame()
 
+    # 立即推送 opponent_joined + 最新 game_state 给 host 的 WebSocket
+    game_dict = manager.games[room.id].to_dict() if room.id in manager.games else None
+    manager.push_to_host(
+        room.id,
+        {"type": "opponent_joined", "guest_id": current_user.id},
+    )
+    manager.push_to_host(
+        room.id,
+        {
+            "type": "game_state",
+            "game": game_dict,
+            "status": "playing",
+        },
+    )
+
     return ResponseModel(
         message="加入成功",
         data={"room_id": room.id, "game_id": game_record.id, "player_color": "white"},
@@ -286,29 +320,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
         )
 
         # 双方都到位则通知对方
+        # 注意：opponent_joined 已在 join_room (HTTP) 时通过 push_to_host 推给 host
+        # 这里只给本次刚连入的 client 发 opponent_joined；game_state 已在上面发过最新状态
         if manager.both_connected(room_id):
-            host_c = manager.host_conn(room_id)
-            if host_c:
-                try:
-                    await host_c.send_json({"type": "opponent_joined"})
-                except Exception:
-                    pass
-
-            for conn in manager.all_conns(room_id):
-                try:
-                    await conn.send_json(
-                        {
-                            "type": "game_state",
-                            "game": (
-                                manager.games[room_id].to_dict()
-                                if room_id in manager.games
-                                else None
-                            ),
-                            "status": "playing",
-                        }
-                    )
-                except Exception:
-                    pass
+            try:
+                await websocket.send_json({"type": "opponent_joined"})
+            except Exception:
+                pass
 
         # 主消息循环
         while True:

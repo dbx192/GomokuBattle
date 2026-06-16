@@ -47,6 +47,9 @@ app.include_router(ranking.router)
 @app.on_event("startup")
 async def startup():
     init_db()
+    # 把主事件循环注入 room 路由器，让 HTTP 同步端点能安全推送 WebSocket 消息
+    from routers.room import manager
+    manager.set_main_loop(asyncio.get_running_loop())
     asyncio.create_task(cleanup_expired_rooms())
 
 

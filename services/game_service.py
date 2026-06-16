@@ -16,6 +16,8 @@ class GomokuGame:
             return False
         self.board[row][col] = player
         self.moves.append((row, col, player))
+        # 落子后切换当前玩家
+        self.current_player = self.WHITE if player == self.BLACK else self.BLACK
         return True
     
     def undo_move(self) -> Optional[Tuple[int, int, int]]:
