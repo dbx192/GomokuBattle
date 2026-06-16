@@ -27,9 +27,11 @@
                 <li class="nav-item"><a class="nav-link" href="/game"><i class="bi bi-cpu"></i> 人机对战</a></li>
                 <li class="nav-item"><a class="nav-link active" href="/room"><i class="bi bi-people"></i> 房间对战</a></li>
             </ul>
-            <ul class="navbar-nav">
-                <li class="nav-item">
-                    <a class="nav-link" href="/"><i class="bi bi-house"></i> 返回首页</a>
+            <ul class="navbar-nav" id="authNav">
+                <li class="nav-item" id="loginPrompt">
+                    <a class="nav-link" href="/">
+                        <i class="bi bi-box-arrow-in-right"></i> 前往登录
+                    </a>
                 </li>
             </ul>
         </div>
@@ -50,7 +52,7 @@
                         <i class="bi bi-plus-circle"></i> 创建房间
                     </div>
                     <div class="card-body">
-                        <p class="text-muted small mb-3">创建一个房间，邀请好友加入对战</p>
+                        <p class="text-muted small mb-3">创建一个房间，邀请好友加入对战（5分钟内未匹配自动关闭）</p>
                         <button id="createRoomBtn" class="btn btn-primary w-100">
                             <i class="bi bi-plus-circle"></i> 创建房间
                         </button>
@@ -89,17 +91,42 @@
                 </div>
             </div>
 
-            <!-- Right: Room List -->
+            <!-- Right: Tabs (Active / History) -->
             <div class="col-lg-8">
                 <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span><i class="bi bi-list-ul"></i> 等待中的房间</span>
-                        <small class="text-muted">每5秒自动刷新</small>
+                    <div class="card-header p-0">
+                        <ul class="nav nav-tabs card-header-tabs" id="roomTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="tab-active-btn" data-bs-toggle="tab"
+                                        data-bs-target="#tab-active" type="button">
+                                    <i class="bi bi-list-ul"></i> 等待中的房间
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="tab-history-btn" data-bs-toggle="tab"
+                                        data-bs-target="#tab-history" type="button">
+                                    <i class="bi bi-clock-history"></i> 历史房间
+                                </button>
+                            </li>
+                        </ul>
                     </div>
                     <div class="card-body p-0">
-                        <div class="list-group list-group-flush" id="roomList">
-                            <div class="list-group-item text-center text-muted py-4">
-                                <i class="bi bi-hourglass-split"></i> 加载中...
+                        <div class="tab-content">
+                            <div class="tab-pane fade show active" id="tab-active" role="tabpanel">
+                                <small class="text-muted d-block px-3 pt-2">每5秒自动刷新</small>
+                                <div class="list-group list-group-flush" id="roomList">
+                                    <div class="list-group-item text-center text-muted py-4">
+                                        <i class="bi bi-hourglass-split"></i> 加载中...
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="tab-history" role="tabpanel">
+                                <small class="text-muted d-block px-3 pt-2">我参与过的对局</small>
+                                <div class="list-group list-group-flush" id="historyList">
+                                    <div class="list-group-item text-center text-muted py-4">
+                                        <i class="bi bi-hourglass-split"></i> 加载中...
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -155,12 +182,20 @@
 
                         <div id="roomStatus" class="badge bg-warning w-100 py-2 mb-2">等待对手加入...</div>
 
-                        <div id="turnTimer" class="badge bg-info w-100 py-2 mb-3" style="display:none;font-size:1rem;">
+                        <div id="turnTimer" class="badge bg-info w-100 py-2 mb-2" style="display:none;font-size:1rem;">
                             <i class="bi bi-clock"></i> 剩余时间：<span id="turnTimeLeft">60</span>秒
                         </div>
 
-                        <button id="undoBtn" class="btn btn-outline-warning w-100">
+                        <div id="expiryCountdown" class="badge bg-secondary w-100 py-2 mb-2" style="display:none;">
+                            <i class="bi bi-hourglass"></i> 房间将在 <span id="expiryTimeLeft">5:00</span> 后关闭
+                        </div>
+
+                        <button id="undoBtn" class="btn btn-outline-warning w-100 mb-2">
                             <i class="bi bi-arrow-counterclockwise"></i> 请求悔棋
+                        </button>
+
+                        <button id="leaveRoomBtn" class="btn btn-outline-danger w-100">
+                            <i class="bi bi-box-arrow-left"></i> 离开房间
                         </button>
                     </div>
                 </div>

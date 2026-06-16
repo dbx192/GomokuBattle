@@ -23,23 +23,28 @@ let roomCountdownInterval = null;
 let turnTimerInterval = null;
 let turnTimeLeft = 60;
 const TURN_TIME_LIMIT = 60;
+const ROOM_EXPIRY_MS = 5 * 60 * 1000;
 
 $(function() {
     canvas = document.getElementById('gameCanvas');
     ctx = canvas.getContext('2d');
-    
+
     canvas.width = BOARD_SIZE * CELL_SIZE + PADDING * 2;
     canvas.height = BOARD_SIZE * CELL_SIZE + PADDING * 2;
-    
+
     canvas.addEventListener('click', handleClick);
-    
+
     $('#createRoomBtn').on('click', createRoom);
     $('#joinRoomBtn').on('click', joinRoom);
     $('#undoBtn').on('click', requestUndo);
-    $('#logoutBtn').on('click', () => location.href = '/');
-    
+    $('#leaveRoomBtn').on('click', leaveRoom);
+    $('#shareHint').on('click', shareRoom);
+    $('#shareHint2').on('click', shareRoom);
+    $('#tab-history-btn').on('shown.bs.tab', loadHistoryList);
+
     drawBoard();
     loadRoomList();
+    loadHistoryList();
     roomListInterval = setInterval(loadRoomList, 5000);
 
     checkAuth();
@@ -48,8 +53,8 @@ $(function() {
 function checkAuth() {
     const token = localStorage.getItem('access_token');
     if (!token) {
-        toastr.error('请先登录');
-        setTimeout(() => location.href = '/', 1500);
+        showAuthNav(null);
+        toastr.warning('请先登录后再加入房间');
         return;
     }
 
@@ -57,21 +62,7 @@ function checkAuth() {
         .done(res => {
             if (res.code === 200) {
                 const user = res.data;
-                $('#authNav').html(`
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
-                            <i class="bi bi-person-circle"></i> ${user.username}
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-end">
-                            <li><a class="dropdown-item" href="#" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a></li>
-                        </ul>
-                    </li>
-                `);
-                $('#logoutBtn').on('click', () => {
-                    localStorage.removeItem('access_token');
-                    localStorage.removeItem('user');
-                    location.href = '/';
-                });
+                showAuthNav(user);
 
                 const urlParams = new URLSearchParams(window.location.search);
                 const roomCode = urlParams.get('code');
@@ -79,12 +70,52 @@ function checkAuth() {
                     $('#joinRoomCode').val(roomCode.toUpperCase());
                     joinRoom();
                 }
+            } else {
+                showAuthNav(null);
             }
         })
-        .fail(() => {
-            toastr.error('请先登录');
-            setTimeout(() => location.href = '/', 1500);
+        .fail(xhr => {
+            showAuthNav(null);
+            const status = xhr.status;
+            if (status === 401 || status === 403) {
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('user');
+                toastr.error('登录已失效，请重新登录');
+            }
         });
+}
+
+function showAuthNav(user) {
+    const $nav = $('#authNav');
+    if (!$nav.length) return;
+    if (user && user.username) {
+        $nav.html(`
+            <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                    <i class="bi bi-person-circle"></i> ${user.username}
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="/"><i class="bi bi-house"></i> 首页</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a></li>
+                </ul>
+            </li>
+        `);
+        $('#logoutBtn').on('click', e => {
+            e.preventDefault();
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user');
+            location.href = '/';
+        });
+    } else {
+        $nav.html(`
+            <li class="nav-item">
+                <a class="nav-link" href="/">
+                    <i class="bi bi-box-arrow-in-right"></i> 前往登录
+                </a>
+            </li>
+        `);
+    }
 }
 
 function stopRoomListPolling() {
@@ -94,27 +125,43 @@ function stopRoomListPolling() {
     }
 }
 
-function startRoomExpiryCheck() {
-    roomExpireTime = Date.now() + 5 * 60 * 1000;
-    
+function startRoomExpiryCheck(expiresAt) {
+    stopRoomExpiryCheck();
+    if (expiresAt) {
+        roomExpireTime = expiresAt;
+    } else {
+        roomExpireTime = Date.now() + ROOM_EXPIRY_MS;
+    }
+
+    $('#expiryCountdown').show();
+
     if (roomCountdownInterval) clearInterval(roomCountdownInterval);
     roomCountdownInterval = setInterval(() => {
         if (!roomExpireTime || gameStarted) {
             clearInterval(roomCountdownInterval);
             roomCountdownInterval = null;
+            $('#expiryCountdown').hide();
             return;
         }
         const remaining = Math.max(0, roomExpireTime - Date.now());
         const mins = Math.floor(remaining / 60000);
         const secs = Math.floor((remaining % 60000) / 1000);
-        $('#roomStatus').text(`等待对手加入... ${mins}:${secs.toString().padStart(2, '0')}`);
-        
+        $('#expiryTimeLeft').text(`${mins}:${secs.toString().padStart(2, '0')}`);
+
+        if (remaining <= 30000) {
+            $('#expiryCountdown').removeClass('bg-secondary bg-warning').addClass('bg-danger');
+        } else if (remaining <= 60000) {
+            $('#expiryCountdown').removeClass('bg-secondary bg-danger').addClass('bg-warning');
+        } else {
+            $('#expiryCountdown').removeClass('bg-warning bg-danger').addClass('bg-secondary');
+        }
+
         if (remaining <= 0) {
             clearInterval(roomCountdownInterval);
             roomCountdownInterval = null;
         }
     }, 1000);
-    
+
     if (roomCheckInterval) clearInterval(roomCheckInterval);
     roomCheckInterval = setInterval(() => {
         if (!roomId || gameStarted) {
@@ -124,22 +171,45 @@ function startRoomExpiryCheck() {
         }
         API.get('/api/room/info/' + roomId)
             .done(res => {
-                if (res.code === 200) {
-                    if (res.data.status === 'expired' || res.data.status === 'completed') {
-                        clearInterval(roomCheckInterval);
-                        clearInterval(roomCountdownInterval);
-                        roomCheckInterval = null;
-                        roomCountdownInterval = null;
-                        toastr.warning('房间已过期，请重新创建');
-                        backToLobby();
-                    }
+                if (res.code === 200 && (res.data.status === 'expired' || res.data.status === 'completed')) {
+                    handleRoomExpired();
                 }
             });
     }, 5000);
 }
 
+function stopRoomExpiryCheck() {
+    if (roomCountdownInterval) {
+        clearInterval(roomCountdownInterval);
+        roomCountdownInterval = null;
+    }
+    if (roomCheckInterval) {
+        clearInterval(roomCheckInterval);
+        roomCheckInterval = null;
+    }
+    roomExpireTime = null;
+    $('#expiryCountdown').hide();
+}
+
+function handleRoomExpired() {
+    stopRoomExpiryCheck();
+    stopTurnTimer();
+    if (ws) {
+        try { ws.close(); } catch (e) {}
+        ws = null;
+    }
+    gameOver = true;
+    toastr.warning('房间已过期（5分钟未匹配）', '房间关闭', { timeOut: 5000 });
+    setTimeout(backToLobby, 800);
+}
+
 function backToLobby() {
-    if (ws) { ws.close(); ws = null; }
+    stopRoomExpiryCheck();
+    stopTurnTimer();
+    if (ws) {
+        try { ws.close(); } catch (e) {}
+        ws = null;
+    }
     roomId = null;
     gameId = null;
     playerColor = null;
@@ -150,39 +220,51 @@ function backToLobby() {
     lastMove = null;
     currentPlayer = 'black';
     board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-    
+
     $('#gameView').hide();
     $('#lobbyView').show();
     $('#createRoomBtn').prop('disabled', false).html('<i class="bi bi-plus-circle"></i> 创建房间');
+    $('#createRoomBtn').show();
+    $('#roomCodeDisplay').hide();
+    $('#waitingOverlay').hide();
+    $('#undoBtn').prop('disabled', false).html('<i class="bi bi-arrow-counterclockwise"></i> 请求悔棋');
+    $('#leaveRoomBtn').prop('disabled', false).html('<i class="bi bi-box-arrow-left"></i> 离开房间');
+    $('#turnTimer').hide();
+    $('#yourColorInfo').hide();
     roomListInterval = setInterval(loadRoomList, 5000);
     loadRoomList();
+    loadHistoryList();
+    drawBoard();
+}
+
+function leaveRoom() {
+    if (!confirm('确定要离开当前房间吗？')) return;
+    backToLobby();
+    toastr.info('已离开房间');
 }
 
 function startTurnTimer() {
     stopTurnTimer();
     turnTimeLeft = TURN_TIME_LIMIT;
-    $('#turnTimer').show();
+    $('#turnTimer').show().removeClass('bg-warning bg-danger').addClass('bg-info');
     $('#turnTimeLeft').text(turnTimeLeft);
-    
+
     turnTimerInterval = setInterval(() => {
         turnTimeLeft--;
         $('#turnTimeLeft').text(turnTimeLeft);
-        
+
         if (turnTimeLeft <= 10) {
             $('#turnTimer').removeClass('bg-info bg-warning').addClass('bg-danger');
         } else if (turnTimeLeft <= 20) {
             $('#turnTimer').removeClass('bg-info bg-danger').addClass('bg-warning');
         }
-        
+
         if (turnTimeLeft <= 0) {
             stopTurnTimer();
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'timeout' }));
             }
             toastr.error('思考超时！');
-            gameOver = true;
-            const winner = playerColor === 'black' ? 'white' : 'black';
-            endGame(winner, null);
         }
     }, 1000);
 }
@@ -196,89 +278,146 @@ function stopTurnTimer() {
     $('#turnTimer').hide();
 }
 
+function shareRoom() {
+    const roomCode = $('#gameRoomCode').text() || $('#roomCode').text();
+    if (!roomCode || roomCode === '------') return;
+    const joinUrl = `${window.location.origin}/room?code=${roomCode}`;
+    const shareText = `来一局五子棋吧！我已经准备好棋盘了，等你来挑战 🎯\n\n加入链接：${joinUrl}\n房间代码：${roomCode}`;
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(shareText)
+            .then(() => toastr.success('分享链接已复制到剪贴板！'))
+            .catch(() => fallbackCopy(shareText));
+    } else {
+        fallbackCopy(shareText);
+    }
+}
+
+function fallbackCopy(text) {
+    const $tmp = $('<textarea>').val(text).appendTo('body').select();
+    try {
+        document.execCommand('copy');
+        toastr.success('分享链接已复制到剪贴板！');
+    } catch (e) {
+        toastr.error('复制失败，请手动复制');
+    }
+    $tmp.remove();
+}
+
 function createRoom() {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+        toastr.error('请先登录');
+        return;
+    }
     API.post('/api/room/create')
         .done(res => {
             if (res.code === 200) {
                 stopRoomListPolling();
                 roomId = res.data.id;
                 playerColor = 'black';
+                gameStarted = false;
+                gameOver = false;
+                isMyTurn = false;
+                winningLine = null;
+                lastMove = null;
+                currentPlayer = 'black';
                 board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-                
+
                 $('#lobbyView').hide();
                 $('#gameView').show();
                 $('#yourColorInfo').show();
-                $('#yourColor').text('黑棋').addClass('text-dark');
+                $('#yourColor').text('黑棋');
                 $('#blackPlayer').text('你');
                 $('#whitePlayer').text('等待中...');
-                
+
+                $('#roomCodeDisplay').show();
+                $('#roomCode').text(res.data.room_code);
                 $('#gameRoomCodeCard').show();
                 $('#gameRoomCode').text(res.data.room_code);
                 $('#createRoomBtn').prop('disabled', true).html('<i class="bi bi-check"></i> 房间已创建');
                 $('#waitingOverlay').show();
                 $('#roomStatus').text('等待对手加入...').removeClass('bg-success').addClass('bg-warning');
-                
-                $('#shareHint2').on('click', function() {
-                    const roomCode = $('#gameRoomCode').text();
-                    const joinUrl = `${window.location.origin}/room?code=${roomCode}`;
-                    const shareText = `来一局五子棋吧！我已经准备好棋盘了，等你来挑战 🎯\n\n加入链接：${joinUrl}\n房间代码：${roomCode}`;
-                    
-                    navigator.clipboard.writeText(shareText).then(() => {
-                        toastr.success('分享链接已复制到剪贴板！');
-                    }).catch(() => {
-                        toastr.error('复制失败，请手动复制');
-                    });
-                });
-                
+
                 connectWebSocket();
-                startRoomExpiryCheck();
+                startRoomExpiryCheck(res.data.expires_at);
             }
         })
         .fail(xhr => {
-            toastr.error(xhr.responseJSON?.detail || '创建房间失败');
+            const detail = xhr.responseJSON?.detail || '创建房间失败';
+            if (xhr.status === 401 || xhr.status === 403) {
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('user');
+                toastr.error('登录已失效，请重新登录');
+            } else {
+                toastr.error(detail);
+            }
         });
 }
 
 function joinRoom() {
-    const code = $('#joinRoomCode').val().trim().toUpperCase();
-    if (!code || code.length !== 6) {
-        toastr.error('请输入6位房间代码');
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+        toastr.error('请先登录');
         return;
     }
-    
+    const code = $('#joinRoomCode').val().trim().toUpperCase();
+    if (!code) {
+        toastr.error('请输入房间代码');
+        return;
+    }
+    if (code.length !== 6) {
+        toastr.error('房间代码为6位字符');
+        return;
+    }
+
     API.post('/api/room/join/' + code)
         .done(res => {
             if (res.code === 200) {
                 stopRoomListPolling();
+                stopRoomExpiryCheck();
                 roomId = res.data.room_id;
                 gameId = res.data.game_id;
                 playerColor = res.data.player_color;
-                
+                gameStarted = false;
+                gameOver = false;
+                isMyTurn = false;
+                winningLine = null;
+                lastMove = null;
+                currentPlayer = 'black';
                 board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-                
+
                 $('#lobbyView').hide();
                 $('#gameView').show();
                 $('#yourColorInfo').show();
-                $('#yourColor').text(playerColor === 'black' ? '黑棋' : '白棋').addClass(playerColor === 'black' ? 'text-dark' : 'text-white');
-                
+                $('#yourColor').text(playerColor === 'black' ? '黑棋' : '白棋');
+
                 $('#gameRoomCodeCard').show();
                 $('#gameRoomCode').text(code);
                 $('#waitingOverlay').hide();
-                $('#roomStatus').text('游戏进行中').removeClass('bg-warning').addClass('bg-success');
-                gameStarted = true;
-                
+                $('#roomStatus').text('对手已就位，游戏开始！').removeClass('bg-warning').addClass('bg-success');
+
                 if (playerColor === 'white') {
                     $('#whitePlayer').text('你');
                     $('#blackPlayer').text('对手');
-                    isMyTurn = false;
+                } else {
+                    $('#blackPlayer').text('你');
+                    $('#whitePlayer').text('对手');
                 }
-                
+
                 connectWebSocket();
                 loadRoomInfo();
             }
         })
         .fail(xhr => {
-            toastr.error(xhr.responseJSON?.detail || '加入房间失败');
+            const detail = xhr.responseJSON?.detail || '加入房间失败';
+            if (xhr.status === 401 || xhr.status === 403) {
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('user');
+                toastr.error('登录已失效，请重新登录');
+            } else {
+                toastr.error(detail);
+            }
         });
 }
 
@@ -291,29 +430,53 @@ function loadRoomList() {
         });
 }
 
+function loadHistoryList() {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+        $('#historyList').html('<div class="list-group-item text-center text-muted py-4"><i class="bi bi-info-circle"></i> 请先登录</div>');
+        return;
+    }
+    API.get('/api/room/history')
+        .done(res => {
+            if (res.code === 200) {
+                renderHistoryList(res.data);
+            }
+        })
+        .fail(xhr => {
+            if (xhr.status === 401 || xhr.status === 403) {
+                $('#historyList').html('<div class="list-group-item text-center text-muted py-4"><i class="bi bi-info-circle"></i> 请先登录</div>');
+            } else {
+                $('#historyList').html('<div class="list-group-item text-center text-danger py-4">加载失败</div>');
+            }
+        });
+}
+
 function renderRoomList(rooms) {
     const container = $('#roomList');
-    
+
     if (!rooms || rooms.length === 0) {
         container.html('<div class="list-group-item text-center text-muted py-4"><i class="bi bi-hourglass-split"></i> 暂无等待中的房间</div>');
         return;
     }
-    
+
     container.empty();
-    
+
     rooms.forEach(room => {
+        const created = room.created_at ? new Date(room.created_at) : new Date();
+        const timeStr = created.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         container.append(`
             <a href="#" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center room-item" data-code="${room.room_code}">
                 <div>
-                    <strong>${room.room_code}</strong>
-                    <small class="text-muted ms-2">${room.host_name}</small>
+                    <strong style="font-family:var(--font-mono);letter-spacing:0.15em;">${room.room_code}</strong>
+                    <small class="text-muted ms-2"><i class="bi bi-person"></i> ${room.host_name || '匿名'}</small>
+                    <small class="text-muted ms-2"><i class="bi bi-clock"></i> ${timeStr}</small>
                 </div>
                 <span class="badge bg-success">等待中</span>
             </a>
         `);
     });
-    
-    $('.room-item').on('click', function(e) {
+
+    $('.room-item').off('click').on('click', function(e) {
         e.preventDefault();
         const code = $(this).data('code');
         $('#joinRoomCode').val(code);
@@ -321,14 +484,50 @@ function renderRoomList(rooms) {
     });
 }
 
+const STATUS_LABELS = {
+    waiting: { text: '等待中', cls: 'bg-success' },
+    playing: { text: '进行中', cls: 'bg-primary' },
+    completed: { text: '已结束', cls: 'bg-secondary' },
+    expired: { text: '已过期', cls: 'bg-warning' }
+};
+
+function renderHistoryList(rooms) {
+    const container = $('#historyList');
+
+    if (!rooms || rooms.length === 0) {
+        container.html('<div class="list-group-item text-center text-muted py-4"><i class="bi bi-inbox"></i> 暂无历史房间</div>');
+        return;
+    }
+
+    container.empty();
+
+    rooms.forEach(room => {
+        const meta = STATUS_LABELS[room.status] || { text: room.status, cls: 'bg-secondary' };
+        const created = room.created_at ? new Date(room.created_at) : new Date();
+        const dateStr = created.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const players = `${room.host_name || '?'}  vs  ${room.guest_name || '?'}`;
+        container.append(`
+            <div class="list-group-item d-flex justify-content-between align-items-center history-item">
+                <div>
+                    <strong style="font-family:var(--font-mono);letter-spacing:0.15em;">${room.room_code}</strong>
+                    <small class="text-muted ms-2">${players}</small>
+                    <small class="text-muted ms-2"><i class="bi bi-calendar"></i> ${dateStr}</small>
+                </div>
+                <span class="badge ${meta.cls}">${meta.text}</span>
+            </div>
+        `);
+    });
+}
+
 function loadRoomInfo() {
     if (!roomId) return;
-    
+
     API.get('/api/room/info/' + roomId)
         .done(res => {
             if (res.code === 200) {
-                $('#blackPlayer').text(res.data.is_host ? '你' : '等待中...');
-                if (!res.data.is_host && res.data.guest_id) {
+                if (res.data.is_host) {
+                    $('#blackPlayer').text('你');
+                } else if (res.data.guest_id) {
                     $('#whitePlayer').text('你');
                 }
             }
@@ -337,24 +536,53 @@ function loadRoomInfo() {
 
 function connectWebSocket() {
     const token = localStorage.getItem('access_token');
+    if (!token || !roomId) {
+        toastr.error('无法建立连接，缺少房间或登录信息');
+        return;
+    }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/room/ws/${roomId}?token=${token}`;
-    
-    ws = new WebSocket(wsUrl);
-    
+    const wsUrl = `${protocol}//${window.location.host}/api/room/ws/${roomId}?token=${encodeURIComponent(token)}`;
+
+    try {
+        ws = new WebSocket(wsUrl);
+    } catch (e) {
+        toastr.error('WebSocket 创建失败：' + e.message);
+        return;
+    }
+
     ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log('WebSocket connected, roomId=' + roomId);
     };
-    
+
     ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        handleWSMessage(data);
+        try {
+            const data = JSON.parse(event.data);
+            handleWSMessage(data);
+        } catch (e) {
+            console.error('WS parse error', e);
+        }
     };
-    
-    ws.onclose = () => {
-        console.log('WebSocket disconnected');
+
+    ws.onclose = (ev) => {
+        console.log('WebSocket closed, code=' + ev.code);
+        if (ev.code === 4001) {
+            toastr.error('登录已失效，请重新登录');
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user');
+        } else if (ev.code === 4010) {
+            handleRoomExpired();
+        } else if (ev.code === 4003) {
+            toastr.error('无权加入此房间');
+            backToLobby();
+        } else if (ev.code === 4004) {
+            toastr.error('房间不存在');
+            backToLobby();
+        } else if (ev.code !== 1000 && ev.code !== 1001 && gameStarted) {
+            // 异常关闭且已开始游戏
+            toastr.warning('与服务器的连接已断开');
+        }
     };
-    
+
     ws.onerror = (error) => {
         console.error('WebSocket error:', error);
     };
@@ -369,19 +597,25 @@ function handleWSMessage(data) {
                 $('#yourColor').text(playerColor === 'black' ? '黑棋' : '白棋');
             }
             break;
-            
+
         case 'opponent_joined':
             $('#waitingOverlay').hide();
             $('#roomStatus').text('游戏开始').removeClass('bg-warning').addClass('bg-success');
             gameStarted = true;
+            stopRoomExpiryCheck();
             toastr.success('对手已加入，游戏开始!');
-            
+
             if (playerColor === 'black') {
+                $('#blackPlayer').text('你');
                 isMyTurn = true;
                 startTurnTimer();
+            } else {
+                $('#whitePlayer').text('你');
+                isMyTurn = false;
+                stopTurnTimer();
             }
             break;
-            
+
         case 'game_state':
             if (data.game && data.game.board && Array.isArray(data.game.board)) {
                 for (let r = 0; r < Math.min(BOARD_SIZE, data.game.board.length); r++) {
@@ -397,7 +631,13 @@ function handleWSMessage(data) {
                     lastMove = { row: last[0], col: last[1], player: last[2] === 1 ? 'black' : 'white' };
                 }
                 currentPlayer = data.game.current_player === 1 ? 'black' : 'white';
-                
+            }
+
+            if (data.status === 'playing') {
+                $('#roomStatus').text('游戏进行中').removeClass('bg-warning').addClass('bg-success');
+                gameStarted = true;
+                stopRoomExpiryCheck();
+                $('#waitingOverlay').hide();
                 if (playerColor === currentPlayer) {
                     isMyTurn = true;
                     startTurnTimer();
@@ -406,16 +646,10 @@ function handleWSMessage(data) {
                     stopTurnTimer();
                 }
             }
-            
-            if (data.status === 'playing') {
-                $('#roomStatus').text('游戏进行中').addClass('bg-success');
-                gameStarted = true;
-                $('#waitingOverlay').hide();
-            }
-            
+
             drawBoard();
             break;
-            
+
         case 'move':
             if (data.row != null && data.col != null && data.row >= 0 && data.col >= 0) {
                 board[data.row][data.col] = data.player;
@@ -425,13 +659,13 @@ function handleWSMessage(data) {
             isMyTurn = (playerColor === currentPlayer);
             if (isMyTurn) { startTurnTimer(); } else { stopTurnTimer(); }
             drawBoard();
-            
+
             if (data.game_over) {
                 stopTurnTimer();
                 endGame(data.player, data.winning_line);
             }
             break;
-            
+
         case 'undo':
             if (data.row !== undefined && data.col !== undefined) {
                 board[data.row][data.col] = null;
@@ -443,41 +677,56 @@ function handleWSMessage(data) {
             drawBoard();
             toastr.info('悔棋成功');
             break;
+
+        case 'room_expired':
+            handleRoomExpired();
+            break;
+
+        case 'pong':
+            break;
     }
 }
 
 function handleClick(e) {
     if (!gameStarted || gameOver || !isMyTurn) return;
     if (playerColor !== currentPlayer) return;
-    
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        toastr.warning('连接尚未就绪');
+        return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    
+
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
-    
+
     const col = Math.round((x - PADDING) / CELL_SIZE);
     const row = Math.round((y - PADDING) / CELL_SIZE);
-    
+
     if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) return;
     if (board[row][col] !== null) return;
-    
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'move', row, col }));
-        board[row][col] = playerColor;
-        lastMove = { row, col, player: playerColor };
-        isMyTurn = false;
-        stopTurnTimer();
-        drawBoard();
-    }
+
+    ws.send(JSON.stringify({ type: 'move', row, col }));
+    board[row][col] = playerColor;
+    lastMove = { row, col, player: playerColor };
+    isMyTurn = false;
+    stopTurnTimer();
+    drawBoard();
 }
 
 function requestUndo() {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'undo' }));
-        toastr.info('已发送悔棋请求');
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        toastr.warning('连接尚未就绪');
+        return;
     }
+    if (!gameStarted || gameOver) {
+        toastr.warning('当前没有进行中的对局');
+        return;
+    }
+    ws.send(JSON.stringify({ type: 'undo' }));
+    toastr.info('已发送悔棋请求');
 }
 
 function findLastMove() {
@@ -495,17 +744,17 @@ function endGame(winner, line) {
     gameOver = true;
     winningLine = line;
     stopTurnTimer();
-    
+
     if (winner === playerColor) {
-        $('#resultIcon').removeClass('bi-emoji-frown').addClass('bi-trophy-fill');
+        $('#resultIcon').removeClass().addClass('bi-trophy-fill');
         $('#resultText').text('你赢了!');
         $('#resultModal .modal-header').removeClass('bg-danger').addClass('bg-success');
     } else {
-        $('#resultIcon').removeClass('bi-trophy-fill').addClass('bi-emoji-frown');
+        $('#resultIcon').removeClass().addClass('bi-emoji-frown');
         $('#resultText').text('你输了');
         $('#resultModal .modal-header').removeClass('bg-success').addClass('bg-danger');
     }
-    
+
     drawBoard();
     $('#resultModal').modal('show');
 }
@@ -546,7 +795,7 @@ function drawBoard() {
         ctx.arc(PADDING + c * CELL_SIZE, PADDING + r * CELL_SIZE, 3.5, 0, Math.PI * 2);
         ctx.fill();
     });
-    
+
     for (let r = 0; r < BOARD_SIZE; r++) {
         if (!board[r] || !Array.isArray(board[r])) continue;
         for (let c = 0; c < BOARD_SIZE; c++) {
@@ -555,7 +804,7 @@ function drawBoard() {
             }
         }
     }
-    
+
     if (lastMove) {
         ctx.strokeStyle = lastMove.player === 'black' ? '#fff' : '#000';
         ctx.lineWidth = 2;
@@ -568,7 +817,7 @@ function drawBoard() {
         );
         ctx.stroke();
     }
-    
+
     if (winningLine && Array.isArray(winningLine) && winningLine.length >= 5
         && Array.isArray(winningLine[0]) && Array.isArray(winningLine[4])) {
         ctx.save();

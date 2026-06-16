@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
 from routers import auth, game, room, ranking
+from routers.room import notify_room_expired
 import asyncio
 from datetime import datetime, timedelta
 from database import SessionLocal
@@ -51,7 +52,7 @@ async def startup():
 
 async def cleanup_expired_rooms():
     while True:
-        await asyncio.sleep(30)
+        await asyncio.sleep(10)
         try:
             db = SessionLocal()
             threshold = datetime.utcnow() - timedelta(minutes=5)
@@ -62,7 +63,13 @@ async def cleanup_expired_rooms():
             )
             for room in expired:
                 room.status = "expired"
-            db.commit()
+                # 通知 WebSocket 房间内的玩家
+                try:
+                    notify_room_expired(room.id)
+                except Exception:
+                    pass
+            if expired:
+                db.commit()
             db.close()
         except Exception as e:
             print(f"Cleanup error: {e}")
