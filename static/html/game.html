@@ -145,5 +145,72 @@
 <script src="https://cdn.jsdelivr.net/npm/toastr@2.1.4/build/toastr.min.js"></script>
 <script src="/static/js/main.js"></script>
 <script src="/static/js/game.js"></script>
+
+<!-- ═══════════════ LOGIN MODAL ═══════════════ -->
+<div class="modal fade" id="loginModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-box-arrow-in-right"></i> 登录后开始对弈</h5>
+                <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-info-circle"></i> 人机对战需要登录后才能开始
+                </p>
+                <form id="loginForm">
+                    <div class="mb-3">
+                        <label class="form-label">用户名</label>
+                        <input type="text" name="username" class="form-control" placeholder="请输入用户名" required autocomplete="username">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">密码</label>
+                        <input type="password" name="password" class="form-control" placeholder="请输入密码" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 mt-2">
+                        <i class="bi bi-box-arrow-in-right"></i> 登录
+                    </button>
+                </form>
+                <div class="text-center mt-3">
+                    <small class="text-muted">还没有账号？
+                        <a href="#" class="text-gold" data-bs-toggle="modal" data-bs-target="#registerModal" data-bs-dismiss="modal">立即注册</a>
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════ REGISTER MODAL ═══════════════ -->
+<div class="modal fade" id="registerModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="bi bi-person-plus"></i> 注册</h5>
+                <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="registerForm">
+                    <div class="mb-3">
+                        <label class="form-label">用户名</label>
+                        <input type="text" name="username" class="form-control" placeholder="请输入用户名" required minlength="2" maxlength="20" autocomplete="username">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">密码</label>
+                        <input type="password" name="password" class="form-control" placeholder="请输入密码（至少6位）" required minlength="6" autocomplete="new-password">
+                    </div>
+                    <button type="submit" class="btn btn-success w-100 mt-2">
+                        <i class="bi bi-person-plus"></i> 注册
+                    </button>
+                </form>
+                <div class="text-center mt-3">
+                    <small class="text-muted">已有账号？
+                        <a href="#" class="text-gold" data-bs-toggle="modal" data-bs-target="#loginModal" data-bs-dismiss="modal">返回登录</a>
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 </body>
 </html>

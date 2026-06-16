@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from typing import Dict, List, Optional
 from database import get_db, SessionLocal
 from models.user import User
@@ -358,6 +359,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                 )
                 if game_record:
                     game_record.moves = game.moves
+                    flag_modified(game_record, "moves")
                     if winner:
                         game_record.winner_id = (
                             room.host_id
@@ -428,6 +430,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                 )
                 if game_record:
                     game_record.moves = game.moves
+                    flag_modified(game_record, "moves")
                     db.commit()
 
                 for conn in manager.all_conns(room_id):

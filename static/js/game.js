@@ -11,6 +11,9 @@ let isMyTurn = true;
 let gameOver = false;
 let winningLine = null;
 let lastMove = null;
+// 落子历史：按真实落子顺序记录 [{row, col, player}, ...]
+// 用于悔棋时精确定位要清除的棋子，避免按坐标扫描误清
+let movesHistory = [];
 
 $(function() {
     canvas = document.getElementById('gameCanvas');
@@ -33,8 +36,8 @@ $(function() {
 function checkAuth() {
     const token = localStorage.getItem('access_token');
     if (!token) {
-        toastr.error('请先登录');
-        setTimeout(() => location.href = '/', 1500);
+        // 不跳转、不弹红 toast —— 直接弹登录框让用户登录
+        showLoginModal();
         return;
     }
 
@@ -57,12 +60,13 @@ function checkAuth() {
                     localStorage.removeItem('user');
                     location.href = '/';
                 });
+            } else {
+                // 业务码非 200：清 token + 弹登录框
+                localStorage.removeItem('access_token');
+                showLoginModal();
             }
-        })
-        .fail(() => {
-            toastr.error('请先登录');
-            setTimeout(() => location.href = '/', 1500);
         });
+        // 401 由全局 ajaxError 兜底（清 token + 弹登录框），不在这里重复处理
 }
 
 function startGame() {
@@ -76,6 +80,7 @@ function startGame() {
                 gameOver = false;
                 winningLine = null;
                 lastMove = null;
+                movesHistory = [];
                 
                 $('#startGameBtn').hide();
                 $('#undoBtn').prop('disabled', true);
@@ -97,11 +102,15 @@ function startGame() {
                 $('#historyCard').show();
                 drawBoard();
                 loadHistory();
+            } else {
+                toastr.error(res.message || '开始对局失败');
             }
         })
         .fail(xhr => {
-            toastr.error('登录后开始游戏');
-            setTimeout(() => location.href = '/', 1500);
+            // 401 由全局 ajaxError 处理弹登录框；这里只处理其他错误
+            if (xhr.status !== 401) {
+                toastr.error('开始对局失败，请稍后重试');
+            }
         });
 }
 
@@ -131,30 +140,32 @@ function makeMove(row, col) {
                 const playerMove = res.data.player_move;
                 board[playerMove.row][playerMove.col] = 'black';
                 lastMove = { row: playerMove.row, col: playerMove.col, player: 'black' };
-                
+                movesHistory.push({ row: playerMove.row, col: playerMove.col, player: 'black' });
+
                 drawBoard();
-                
+
                 if (playerMove.game_over) {
                     endGame(playerMove.winner, res.data.ai_move?.winning_line || playerMove.winning_line);
                     return;
                 }
-                
+
                 isMyTurn = false;
                 $('#undoBtn').prop('disabled', true);
                 $('#gameStatus').html('<span class="badge bg-warning">进行中 - AI思考中...</span>');
-                
+
                 setTimeout(() => {
                     const aiMove = res.data.ai_move;
                     if (aiMove) {
                         board[aiMove.row][aiMove.col] = 'white';
                         lastMove = { row: aiMove.row, col: aiMove.col, player: 'white' };
+                        movesHistory.push({ row: aiMove.row, col: aiMove.col, player: 'white' });
                         drawBoard();
-                        
+
                         if (aiMove.game_over) {
                             endGame(aiMove.winner, aiMove.winning_line);
                             return;
                         }
-                        
+
                         isMyTurn = true;
                         $('#undoBtn').prop('disabled', false);
                         $('#gameStatus').html('<span class="badge bg-success">进行中 - 你的回合</span>');
@@ -163,6 +174,7 @@ function makeMove(row, col) {
             }
         })
         .fail(xhr => {
+            if (xhr.status === 401) return;  // 全局 401 处理会弹登录框
             toastr.error(xhr.responseJSON?.detail || '落子失败');
         });
 }
@@ -171,13 +183,19 @@ function undoMove() {
     API.post('/api/game/ai/undo', { game_id: gameId })
         .done(res => {
             if (res.code === 200 && res.data.success) {
-                const moves = Object.values(board).flat().filter(x => x !== null);
-                if (moves.length >= 2) {
-                    const lastBlack = findLastMove('black');
-                    const lastWhite = findLastMove('white');
-                    if (lastWhite) board[lastWhite.row][lastWhite.col] = null;
-                    if (lastBlack) board[lastBlack.row][lastBlack.col] = null;
-                    lastMove = lastBlack;
+                // 服务端悔棋会同时撤销玩家和 AI 的最后一步（共 2 手）
+                // 必须按真实落子顺序从历史里 pop，而不是扫描棋盘找"最后"某色棋子
+                // （扫描法会把坐标靠下/靠右的早期棋子误当成"最后"清掉，导致本地和服务端脱钩）
+                if (movesHistory.length >= 2) {
+                    const aiLast = movesHistory.pop();  // AI 的最后一手
+                    const playerLast = movesHistory.pop();  // 玩家的最后一手
+                    if (aiLast) board[aiLast.row][aiLast.col] = null;
+                    if (playerLast) board[playerLast.row][playerLast.col] = null;
+                    // 更新"最后一手"标记：玩家悔的是玩家那手，所以最后落子显示回到玩家那手之前；
+                    // 这里取 movesHistory 的最后一个元素（即再上一手玩家棋）
+                    lastMove = movesHistory.length > 0
+                        ? movesHistory[movesHistory.length - 1]
+                        : null;
                 }
                 drawBoard();
                 toastr.success('已撤销');
@@ -228,6 +246,7 @@ function restartGame() {
     gameOver = false;
     winningLine = null;
     lastMove = null;
+    movesHistory = [];
     
     $('#startGameBtn').show();
     $('#undoBtn').prop('disabled', true);

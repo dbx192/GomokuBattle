@@ -54,10 +54,11 @@ function checkAuth() {
                 if (res.code === 200) {
                     showUserInfo(res.data);
                 } else {
+                    // 业务码非 200（不是 401）的情况：清掉本地 token，刷新页面
                     logout();
                 }
-            })
-            .fail(() => logout());
+            });
+        // 401 由全局 ajaxError 兜底处理（清 token + 弹登录框），不在这里 logout() 防止 reload 把弹窗冲掉
     }
 }
 
@@ -94,6 +95,38 @@ function logout() {
     location.reload();
 }
 
+function isLoggedIn() {
+    return !!localStorage.getItem('access_token');
+}
+
+// 全局显示登录弹窗（无 token 时被拦截后调用）
+function showLoginModal() {
+    const el = document.getElementById('loginModal');
+    if (!el) {
+        // 兜底：当前页没有登录弹窗，只能回首页
+        location.href = '/';
+        return;
+    }
+    bootstrap.Modal.getOrCreateInstance(el).show();
+}
+
+// 处理登录成功后的跳转：
+//  1. 有 postLoginRedirect → 跳到原本要去的页面（从首页被拦截的情况）
+//  2. 没有 redirect、且当前在受保护页 → 刷新当前页让 game.js / room.js 重新跑（直接访问 /game /room 的情况）
+//  3. 其他（首页）→ 留在原页即可，showUserInfo 已经把用户信息刷出来了
+function handlePostLogin() {
+    const redirect = sessionStorage.getItem('postLoginRedirect');
+    if (redirect) {
+        sessionStorage.removeItem('postLoginRedirect');
+        location.href = redirect;
+        return;
+    }
+    const path = location.pathname;
+    if (path.startsWith('/game') || path.startsWith('/room')) {
+        location.reload();
+    }
+}
+
 $(function() {
     toastr.options = {
         closeButton: true,
@@ -101,15 +134,50 @@ $(function() {
         positionClass: "toast-top-right",
         timeOut: 3000
     };
-    
+
+    // ── 全局拦截：未登录时点击 /game 或 /room 的链接 → 弹登录框，不跳转 ──
+    const PROTECTED_PREFIXES = ['/game', '/room'];
+    function isProtectedPath(href) {
+        if (!href) return false;
+        return PROTECTED_PREFIXES.some(p =>
+            href === p || href.startsWith(p + '/') || href.startsWith(p + '?')
+        );
+    }
+
+    // 事件委托，避免绑定不到动态生成的链接
+    $(document).on('click', 'a[href]', function(e) {
+        const href = $(this).attr('href');
+        if (!isProtectedPath(href)) return;
+        if (isLoggedIn()) return;             // 已登录，正常跳转
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        sessionStorage.setItem('postLoginRedirect', href);
+        showLoginModal();
+    });
+
+    // ── 全局 401 处理：任意 API 返回 401 → 清 token + 弹登录框 ──
+    let showing401Modal = false;
+    $(document).ajaxError(function(event, xhr) {
+        if (xhr.status !== 401) return;
+        if (showing401Modal) return;          // 已经在弹了，别重复
+        if (!localStorage.getItem('access_token')) return;  // 本来就没 token 的话由各自页面处理
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user');
+        showing401Modal = true;
+        toastr.warning('登录已过期，请重新登录');
+        showLoginModal();
+        // modal 关闭后重置 flag
+        $('#loginModal').one('hidden.bs.modal', () => { showing401Modal = false; });
+    });
+
     checkAuth();
-    
+
     $('#loginForm').on('submit', function(e) {
         e.preventDefault();
         const formData = $(this).serializeArray();
         const data = {};
         formData.forEach(item => data[item.name] = item.value);
-        
+
         API.post('/api/auth/login', data)
             .done(res => {
                 if (res.code === 200) {
@@ -117,6 +185,9 @@ $(function() {
                     $('#loginModal').modal('hide');
                     toastr.success('登录成功');
                     showUserInfo(res.data.user);
+
+                    // 延迟一下，等 modal 关闭动画结束再跳转，体验更顺
+                    setTimeout(handlePostLogin, 250);
                 }
             })
             .fail(xhr => {
@@ -124,13 +195,13 @@ $(function() {
                 toastr.error(res.detail || '登录失败');
             });
     });
-    
+
     $('#registerForm').on('submit', function(e) {
         e.preventDefault();
         const formData = $(this).serializeArray();
         const data = {};
         formData.forEach(item => data[item.name] = item.value);
-        
+
         API.post('/api/auth/register', data)
             .done(res => {
                 if (res.code === 201) {
@@ -145,12 +216,12 @@ $(function() {
                 toastr.error(res.detail || '注册失败');
             });
     });
-    
+
     $('[data-page="rankings"]').on('click', function(e) {
         e.preventDefault();
         loadRankings();
     });
-    
+
     function loadRankings() {
         API.get('/api/rankings')
             .done(res => {
@@ -161,18 +232,19 @@ $(function() {
                 }
             });
     }
-    
+
     function renderRankings(data) {
         const tbody = $('#rankingsTable');
         tbody.empty();
-        
+
         data.forEach((user, index) => {
-            const rankClass = index < 3 ? 'text-warning' : '';
+            const isTop3 = index < 3;
             const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : (index + 1);
-            
+            const medalClass = isTop3 ? 'text-warning' : 'text-muted';
+
             tbody.append(`
-                <tr>
-                    <td><span class="${rankClass}">${medal}</span></td>
+                <tr class="${isTop3 ? 'top-rank' : ''}">
+                    <td><span class="rank-medal ${medalClass}">${medal}</span></td>
                     <td><strong>${user.username}</strong></td>
                     <td><span class="badge bg-secondary">${user.rank}</span></td>
                     <td class="text-success fw-bold">${user.wins}</td>
@@ -181,13 +253,13 @@ $(function() {
                         <div class="progress mt-1" style="height: 6px; width: 80px;">
                             <div class="progress-bar bg-success" style="width: ${user.win_rate}%"></div>
                         </div>
-                        <small>${user.win_rate}%</small>
+                        <small class="win-rate">${user.win_rate}%</small>
                     </td>
                 </tr>
             `);
         });
     }
-    
+
     $('[data-page="home"]').on('click', function(e) {
         e.preventDefault();
         $('#homePage').show();

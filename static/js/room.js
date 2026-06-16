@@ -27,6 +27,12 @@ let turnTimeLeft = 60;
 const TURN_TIME_LIMIT = 60;
 const ROOM_EXPIRY_MS = 5 * 60 * 1000;
 
+// 历史房间分页
+const HISTORY_PAGE_SIZE = 15;
+let historyAll = [];      // 全量历史
+let historyPage = 1;      // 当前页 (1-based)
+let historyAuthed = false; // 是否已登录（区分"未登录"和"暂无历史"）
+
 // 等待遮罩有 d-flex !important，jQuery .hide() 会被覆盖；用 d-none !important 才能正确隐藏
 function showWaiting() { $('#waitingOverlay').removeClass('d-none'); }
 function hideWaiting() { $('#waitingOverlay').addClass('d-none'); }
@@ -48,6 +54,23 @@ $(function() {
     $('#shareHint2').on('click', shareRoom);
     $('#tab-history-btn').on('shown.bs.tab', loadHistoryList);
 
+    // 历史房间分页控制
+    $('#hp-prev').on('click', e => {
+        e.preventDefault();
+        if (historyPage > 1) {
+            historyPage--;
+            renderHistoryPage();
+        }
+    });
+    $('#hp-next').on('click', e => {
+        e.preventDefault();
+        const totalPages = Math.max(1, Math.ceil(historyAll.length / HISTORY_PAGE_SIZE));
+        if (historyPage < totalPages) {
+            historyPage++;
+            renderHistoryPage();
+        }
+    });
+
     drawBoard();
     loadRoomList();
     loadHistoryList();
@@ -60,7 +83,8 @@ function checkAuth() {
     const token = localStorage.getItem('access_token');
     if (!token) {
         showAuthNav(null);
-        toastr.warning('请先登录后再加入房间');
+        // 不弹 toast，直接弹登录框让用户登录
+        showLoginModal();
         return;
     }
 
@@ -70,6 +94,9 @@ function checkAuth() {
                 const user = res.data;
                 showAuthNav(user);
 
+                // 重新拉取历史（可能初次未登录态下是空数据）
+                loadHistoryList();
+
                 const urlParams = new URLSearchParams(window.location.search);
                 const roomCode = urlParams.get('code');
                 if (roomCode) {
@@ -78,17 +105,11 @@ function checkAuth() {
                 }
             } else {
                 showAuthNav(null);
-            }
-        })
-        .fail(xhr => {
-            showAuthNav(null);
-            const status = xhr.status;
-            if (status === 401 || status === 403) {
                 localStorage.removeItem('access_token');
-                localStorage.removeItem('user');
-                toastr.error('登录已失效，请重新登录');
+                showLoginModal();
             }
         });
+        // 401 由全局 ajaxError 兜底（清 token + 弹登录框）
 }
 
 function showAuthNav(user) {
@@ -332,9 +353,8 @@ function fallbackCopy(text) {
 }
 
 function createRoom() {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-        toastr.error('请先登录');
+    if (!isLoggedIn()) {
+        showLoginModal();
         return;
     }
     API.post('/api/room/create')
@@ -368,24 +388,21 @@ function createRoom() {
 
                 connectWebSocket();
                 startRoomExpiryCheck(res.data.expires_at);
+            } else {
+                toastr.error(res.message || '创建房间失败');
             }
         })
         .fail(xhr => {
-            const detail = xhr.responseJSON?.detail || '创建房间失败';
-            if (xhr.status === 401 || xhr.status === 403) {
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('user');
-                toastr.error('登录已失效，请重新登录');
-            } else {
-                toastr.error(detail);
+            // 401 由全局 ajaxError 弹登录框
+            if (xhr.status !== 401) {
+                toastr.error(xhr.responseJSON?.detail || '创建房间失败');
             }
         });
 }
 
 function joinRoom() {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-        toastr.error('请先登录');
+    if (!isLoggedIn()) {
+        showLoginModal();
         return;
     }
     const code = $('#joinRoomCode').val().trim().toUpperCase();
@@ -434,16 +451,14 @@ function joinRoom() {
 
                 connectWebSocket();
                 loadRoomInfo();
+            } else {
+                toastr.error(res.message || '加入房间失败');
             }
         })
         .fail(xhr => {
-            const detail = xhr.responseJSON?.detail || '加入房间失败';
-            if (xhr.status === 401 || xhr.status === 403) {
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('user');
-                toastr.error('登录已失效，请重新登录');
-            } else {
-                toastr.error(detail);
+            // 401 由全局 ajaxError 弹登录框
+            if (xhr.status !== 401) {
+                toastr.error(xhr.responseJSON?.detail || '加入房间失败');
             }
         });
 }
@@ -460,45 +475,165 @@ function loadRoomList() {
 function loadHistoryList() {
     const token = localStorage.getItem('access_token');
     if (!token) {
-        $('#historyList').html('<div class="list-group-item text-center text-muted py-4"><i class="bi bi-info-circle"></i> 请先登录</div>');
+        historyAll = [];
+        historyAuthed = false;
+        renderHistoryPage();
         return;
     }
     API.get('/api/room/history')
         .done(res => {
             if (res.code === 200) {
-                renderHistoryList(res.data);
+                historyAll = Array.isArray(res.data) ? res.data : [];
+                historyAuthed = true;
+                // 切回 tab 时回到第 1 页
+                historyPage = 1;
+                renderHistoryPage();
             }
         })
         .fail(xhr => {
             if (xhr.status === 401 || xhr.status === 403) {
-                $('#historyList').html('<div class="list-group-item text-center text-muted py-4"><i class="bi bi-info-circle"></i> 请先登录</div>');
+                historyAll = [];
+                historyAuthed = false;
+                renderHistoryPage();
             } else {
-                $('#historyList').html('<div class="list-group-item text-center text-danger py-4">加载失败</div>');
+                $('#historyList').html(
+                    '<div class="room-list-empty text-danger">' +
+                    '<i class="bi bi-exclamation-triangle"></i>' +
+                    '<span class="small">加载失败</span></div>'
+                );
+                $('#historyRoomCount').text('0');
+                $('#historyPagination').addClass('is-hidden');
             }
         });
 }
 
+function formatTime(value, withSeconds) {
+    const d = value ? new Date(value) : new Date();
+    if (isNaN(d.getTime())) return '—';
+    const pad = n => String(n).padStart(2, '0');
+    const date = `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const time = withSeconds
+        ? `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+        : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${date} ${time}`;
+}
+
+function renderHistoryPage() {
+    const container = $('#historyList');
+    const total = historyAll.length;
+    $('#historyRoomCount').text(total);
+
+    if (total === 0) {
+        const icon = historyAuthed ? 'bi-inbox' : 'bi-person-lock';
+        const text = historyAuthed ? '暂无历史房间' : '登录后查看历史对局';
+        container.html(
+            '<div class="room-list-empty">' +
+            `<i class="bi ${icon}"></i>` +
+            `<span class="small">${text}</span></div>`
+        );
+        $('#historyPagination').addClass('is-hidden');
+        return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
+    if (historyPage > totalPages) historyPage = totalPages;
+    if (historyPage < 1) historyPage = 1;
+
+    const start = (historyPage - 1) * HISTORY_PAGE_SIZE;
+    const slice = historyAll.slice(start, start + HISTORY_PAGE_SIZE);
+
+    container.empty();
+    slice.forEach(room => {
+        container.append(buildHistoryRow(room));
+    });
+
+    // 更新分页 UI
+    const $pagination = $('#historyPagination');
+    const $prev = $('#hp-prev');
+    const $next = $('#hp-next');
+    const $info = $('#hp-info');
+
+    if (totalPages > 1) {
+        $pagination.removeClass('is-hidden');
+        $prev.prop('disabled', historyPage === 1);
+        $next.prop('disabled', historyPage === totalPages);
+        const startIdx = (historyPage - 1) * HISTORY_PAGE_SIZE + 1;
+        const endIdx = Math.min(historyPage * HISTORY_PAGE_SIZE, total);
+        $info.text(`${startIdx}-${endIdx} / ${total}`);
+    } else {
+        $pagination.addClass('is-hidden');
+    }
+}
+
+function buildHistoryRow(room) {
+    const meta = STATUS_LABELS[room.status] || { text: room.status || '—', cls: 'bg-secondary' };
+    const created = formatTime(room.created_at, false);
+    const host = room.host_name || '匿名';
+    const guest = room.guest_name || '匿名';
+
+    let resultCls = '';
+    let resultHtml = '';
+    if (room.status === 'completed' && room.winner_id != null && room.my_id != null) {
+        if (room.winner_id === room.my_id) {
+            resultCls = 'history-win';
+            resultHtml = '<span class="room-row-result win"><i class="bi bi-trophy-fill"></i> 胜</span>';
+        } else {
+            resultCls = 'history-loss';
+            resultHtml = '<span class="room-row-result loss"><i class="bi bi-x-circle"></i> 负</span>';
+        }
+    }
+
+    return `
+        <div class="room-row history-row ${resultCls}">
+            <div class="room-row-main">
+                <div class="room-row-code">${room.room_code || '------'}</div>
+                <div class="room-row-meta">
+                    <span class="meta-item"><i class="bi bi-person"></i>${host}</span>
+                    <span class="meta-item text-muted" style="opacity:0.5;">vs</span>
+                    <span class="meta-item"><i class="bi bi-person"></i>${guest}</span>
+                    <span class="meta-item"><i class="bi bi-calendar3"></i>${created}</span>
+                </div>
+            </div>
+            <div class="room-row-side">
+                ${resultHtml}
+                <span class="badge ${meta.cls}">${meta.text}</span>
+            </div>
+        </div>
+    `;
+}
+
 function renderRoomList(rooms) {
     const container = $('#roomList');
+    const list = Array.isArray(rooms) ? rooms : [];
 
-    if (!rooms || rooms.length === 0) {
-        container.html('<div class="list-group-item text-center text-muted py-4"><i class="bi bi-hourglass-split"></i> 暂无等待中的房间</div>');
+    $('#activeRoomCount').text(list.length);
+
+    if (list.length === 0) {
+        container.html(
+            '<div class="room-list-empty">' +
+            '<i class="bi bi-broadcast"></i>' +
+            '<span class="small">暂无等待中的房间</span></div>'
+        );
         return;
     }
 
     container.empty();
 
-    rooms.forEach(room => {
-        const created = room.created_at ? new Date(room.created_at) : new Date();
-        const timeStr = created.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    list.forEach(room => {
+        const created = formatTime(room.created_at, true);
+        const host = room.host_name || '匿名';
         container.append(`
-            <a href="#" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center room-item" data-code="${room.room_code}">
-                <div>
-                    <strong style="font-family:var(--font-mono);letter-spacing:0.15em;">${room.room_code}</strong>
-                    <small class="text-muted ms-2"><i class="bi bi-person"></i> ${room.host_name || '匿名'}</small>
-                    <small class="text-muted ms-2"><i class="bi bi-clock"></i> ${timeStr}</small>
+            <a href="#" class="room-row is-clickable room-item" data-code="${room.room_code}">
+                <div class="room-row-main">
+                    <div class="room-row-code">${room.room_code}</div>
+                    <div class="room-row-meta">
+                        <span class="meta-item"><i class="bi bi-person"></i>${host}</span>
+                        <span class="meta-item"><i class="bi bi-clock"></i>${created}</span>
+                    </div>
                 </div>
-                <span class="badge bg-success">等待中</span>
+                <div class="room-row-side">
+                    <span class="badge bg-success"><i class="bi bi-broadcast"></i> 等待中</span>
+                </div>
             </a>
         `);
     });
@@ -517,34 +652,6 @@ const STATUS_LABELS = {
     completed: { text: '已结束', cls: 'bg-secondary' },
     expired: { text: '已过期', cls: 'bg-warning' }
 };
-
-function renderHistoryList(rooms) {
-    const container = $('#historyList');
-
-    if (!rooms || rooms.length === 0) {
-        container.html('<div class="list-group-item text-center text-muted py-4"><i class="bi bi-inbox"></i> 暂无历史房间</div>');
-        return;
-    }
-
-    container.empty();
-
-    rooms.forEach(room => {
-        const meta = STATUS_LABELS[room.status] || { text: room.status, cls: 'bg-secondary' };
-        const created = room.created_at ? new Date(room.created_at) : new Date();
-        const dateStr = created.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-        const players = `${room.host_name || '?'}  vs  ${room.guest_name || '?'}`;
-        container.append(`
-            <div class="list-group-item d-flex justify-content-between align-items-center history-item">
-                <div>
-                    <strong style="font-family:var(--font-mono);letter-spacing:0.15em;">${room.room_code}</strong>
-                    <small class="text-muted ms-2">${players}</small>
-                    <small class="text-muted ms-2"><i class="bi bi-calendar"></i> ${dateStr}</small>
-                </div>
-                <span class="badge ${meta.cls}">${meta.text}</span>
-            </div>
-        `);
-    });
-}
 
 function loadRoomInfo() {
     if (!roomId) return;
@@ -602,9 +709,10 @@ function connectWebSocket() {
     ws.onclose = (ev) => {
         console.log('WebSocket closed, code=' + ev.code);
         if (ev.code === 4001) {
-            toastr.error('登录已失效，请重新登录');
+            // WebSocket 鉴权失败：清 token 并弹登录框
             localStorage.removeItem('access_token');
             localStorage.removeItem('user');
+            showLoginModal();
         } else if (ev.code === 4010) {
             handleRoomExpired();
         } else if (ev.code === 4003) {
@@ -721,7 +829,8 @@ function handleWSMessage(data) {
         case 'undo':
             if (data.row !== undefined && data.col !== undefined) {
                 board[data.row][data.col] = null;
-                currentPlayer = data.player === 'black' ? 'white' : 'black';
+                // 悔棋后应该由被悔棋方重下，所以当前玩家就是被悔棋的玩家
+                currentPlayer = data.player;
                 isMyTurn = (playerColor === currentPlayer);
                 if (isMyTurn) { startTurnTimer(); } else { stopTurnTimer(); }
                 lastMove = findLastMove();
@@ -785,7 +894,7 @@ function findLastMove() {
     for (let i = board.length - 1; i >= 0; i--) {
         for (let j = board[i].length - 1; j >= 0; j--) {
             if (board[i][j]) {
-                return { row: i, col: j };
+                return { row: i, col: j, player: board[i][j] };
             }
         }
     }

@@ -544,9 +544,17 @@ h1, h2, h3, h4, h5, h6 {
 /* ── Tables ── */
 .table {
     color: var(--text-primary);
+    /* 关键：Bootstrap cell 选择器特异性更高，必须用 CSS 变量从源头改色，否则 td/th/strong/small 全部深色 */
+    --bs-table-color: var(--text-primary);
     --bs-table-bg: transparent;
     --bs-table-hover-bg: var(--bg-hover);
     --bs-table-border-color: var(--border-subtle);
+}
+
+/* 兜底：直接覆盖 cell 选择器，确保 td/th 继承到亮色 */
+.table > :not(caption) > * > * {
+    color: var(--text-primary);
+    background-color: transparent;
 }
 
 .table th {
@@ -691,19 +699,72 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ── Rankings Table ── */
+#rankingsTable {
+    --bs-table-color: var(--text-primary);
+    --bs-table-bg: transparent;
+    --bs-table-hover-bg: rgba(212, 165, 116, 0.06);
+    --bs-table-border-color: var(--border-subtle);
+    color: var(--text-primary);
+}
+
+#rankingsTable > :not(caption) > * > * {
+    color: var(--text-primary);
+    background-color: transparent;
+    border-bottom-color: var(--border-subtle);
+    padding: 0.85rem 0.75rem;
+    vertical-align: middle;
+}
+
 #rankingsTable tbody tr {
     transition: all var(--transition-base);
-    border-bottom: 1px solid var(--border-subtle);
 }
 
 #rankingsTable tbody tr:hover {
-    background: rgba(212, 165, 116, 0.04);
+    background: rgba(212, 165, 116, 0.05);
+}
+
+#rankingsTable tbody tr:hover > * {
+    background-color: rgba(212, 165, 116, 0.05) !important;
+    color: var(--gold-bright);
 }
 
 #rankingsTable th {
     font-weight: 600;
     color: var(--text-secondary);
-    border-bottom: 2px solid var(--border-amber);
+    border-bottom: 2px solid var(--border-amber) !important;
+    background: var(--bg-elevated) !important;
+    font-family: var(--font-display);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 0.82rem;
+}
+
+/* 段位 badge 颜色：用品牌色替换 Bootstrap 默认灰 */
+#rankingsTable .badge {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    padding: 0.35rem 0.65rem;
+}
+
+/* 排名奖牌 */
+#rankingsTable .rank-medal {
+    font-size: 1.3rem;
+    display: inline-block;
+    min-width: 32px;
+    text-align: center;
+}
+
+/* 胜率小数字 */
+#rankingsTable .win-rate {
+    font-family: var(--font-mono);
+    color: var(--gold-bright);
+    font-weight: 600;
+}
+
+/* 前三名的玩家名加亮 */
+#rankingsTable tbody tr.top-rank strong {
+    color: var(--gold-bright);
 }
 
 /* ── Turn Indicator ── */
@@ -780,20 +841,56 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ── Stat Number ── */
+.user-stats {
+    display: flex;
+    align-items: stretch;
+    text-align: center;
+    width: 100%;
+}
+
+.stat-cell {
+    flex: 1 1 0;
+    min-width: 0;          /* 关键：允许 flex 子项收缩到内容以下 */
+    padding: 0.35rem 0.15rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    gap: 0.2rem;
+}
+
+.stat-cell + .stat-cell::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 18%;
+    bottom: 18%;
+    width: 1px;
+    background: var(--border-subtle);
+}
+
 .stat-number {
     font-family: var(--font-mono);
-    font-size: 2rem;
+    font-size: clamp(0.95rem, 3.6vw, 1.45rem);
     font-weight: 600;
     color: var(--gold-bright);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: clip;
 }
 
 .stat-label {
     font-family: var(--font-display);
-    font-size: 0.8rem;
+    font-size: 0.72rem;
     color: var(--text-muted);
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
+    line-height: 1;
 }
 
 /* ── Room Code Display ── */
@@ -854,12 +951,15 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ── Game History items ── */
-.history-item {
+.history-item,
+.history-row {
     transition: all var(--transition-base);
     border-left: 2px solid transparent;
+    padding: 0.95rem 1.25rem;
 }
 
-.history-item:hover {
+.history-item:hover,
+.history-row:hover {
     border-left-color: var(--gold-muted);
     background: var(--bg-hover);
 }
@@ -870,6 +970,329 @@ h1, h2, h3, h4, h5, h6 {
 
 .history-loss {
     border-left-color: var(--cinnabar) !important;
+}
+
+/* ── Lobby Tabs Card (Active / History) ── */
+.lobby-tabs-card > .card-header {
+    border-bottom: 0;
+}
+
+.lobby-tabs-card .nav-tabs {
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 0 0.25rem;
+    margin: 0;
+}
+
+.lobby-tabs-card .nav-tabs .nav-link {
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    background: transparent;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.92rem;
+    padding: 0.85rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    transition: all var(--transition-base);
+    border-radius: 0;
+    margin: 0;
+    line-height: 1.2;
+}
+
+.lobby-tabs-card .nav-tabs .nav-link i {
+    font-size: 1rem;
+    color: var(--text-muted);
+    transition: color var(--transition-base);
+}
+
+.lobby-tabs-card .nav-tabs .nav-link:hover {
+    color: var(--text-primary);
+    background: transparent;
+    border-bottom-color: var(--border-medium);
+}
+
+.lobby-tabs-card .nav-tabs .nav-link:hover i {
+    color: var(--gold);
+}
+
+.lobby-tabs-card .nav-tabs .nav-link.active {
+    color: var(--gold-bright);
+    background: transparent;
+    border-bottom-color: var(--gold);
+}
+
+.lobby-tabs-card .nav-tabs .nav-link.active i {
+    color: var(--gold-bright);
+}
+
+.tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 20px;
+    padding: 0 0.45rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--ink-dark);
+    border: 1px solid var(--border-medium);
+    border-radius: 10px;
+    line-height: 1;
+    transition: all var(--transition-base);
+}
+
+.lobby-tabs-card .nav-tabs .nav-link.active .tab-badge {
+    color: var(--gold-bright);
+    background: rgba(212, 165, 116, 0.12);
+    border-color: var(--border-amber);
+}
+
+.tab-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.7rem 1.25rem;
+    background: rgba(255, 255, 255, 0.015);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.tab-toolbar small {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+}
+
+/* ── Room list (不套 list-group，纯 div + flex) ── */
+.room-list {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-height: 540px;
+    overflow-y: auto;
+    background: transparent;
+}
+
+.room-list-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 3rem 1rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.room-list-empty i {
+    font-size: 1.8rem;
+    opacity: 0.5;
+}
+
+.room-list-empty .small {
+    font-size: 0.85rem;
+}
+
+/* Room / History row */
+.room-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.85rem 1.25rem;
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background var(--transition-base), border-left-color var(--transition-base);
+    color: var(--text-primary);
+    background: transparent;
+    text-decoration: none;
+    flex-wrap: nowrap;
+    min-width: 0;
+}
+
+.room-row:last-child {
+    border-bottom: none;
+}
+
+a.room-row:hover,
+.room-row.is-clickable:hover {
+    background: rgba(212, 165, 116, 0.06);
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.room-row-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 0.25rem;
+    overflow: hidden;
+}
+
+.room-row-code {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 0.95rem;
+    letter-spacing: 0.18em;
+    color: var(--gold-bright);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.room-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.15rem 0.7rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    min-width: 0;
+}
+
+.room-row-meta .meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+}
+
+.room-row-meta .meta-item i {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.room-row-side {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.room-row-result {
+    font-family: var(--font-display);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 0.2rem 0.55rem;
+    border-radius: 3px;
+    border: 1px solid transparent;
+}
+
+.room-row-result.win {
+    color: var(--jade);
+    background: rgba(90, 158, 111, 0.1);
+    border-color: rgba(90, 158, 111, 0.3);
+}
+
+.room-row-result.loss {
+    color: var(--cinnabar);
+    background: rgba(192, 64, 64, 0.1);
+    border-color: rgba(192, 64, 64, 0.3);
+}
+
+.room-row-result.draw {
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--border-medium);
+}
+
+/* ── Lobby Pagination (纯自定义，不依赖 Bootstrap .pagination) ── */
+.lobby-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border-subtle);
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.lobby-pagination.is-hidden {
+    display: none !important;
+}
+
+.lobby-pagination .page-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 32px;
+    padding: 0 0.5rem;
+    background: var(--ink-dark);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all var(--transition-base);
+}
+
+.lobby-pagination .page-btn:hover:not(:disabled) {
+    background: rgba(212, 165, 116, 0.1);
+    border-color: var(--border-amber);
+    color: var(--gold-bright);
+}
+
+.lobby-pagination .page-btn:active:not(:disabled) {
+    transform: scale(0.96);
+}
+
+.lobby-pagination .page-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    background: transparent;
+}
+
+.lobby-pagination .page-info {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 70px;
+    height: 32px;
+    padding: 0 0.75rem;
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+}
+
+@media (max-width: 768px) {
+    .room-list {
+        max-height: 420px;
+    }
+
+    .lobby-tabs-card .nav-tabs .nav-link {
+        padding: 0.7rem 0.7rem;
+        font-size: 0.85rem;
+    }
+
+    .lobby-tabs-card .nav-tabs .nav-link .tab-text {
+        display: none;
+    }
+
+    .room-row {
+        padding: 0.75rem 0.9rem;
+        gap: 0.5rem;
+    }
+
+    .room-row-meta {
+        gap: 0.15rem 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    .user-stats {
+        /* 极窄屏也撑得住 */
+    }
 }
 
 /* ── Responsive ── */
