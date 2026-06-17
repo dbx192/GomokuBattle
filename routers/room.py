@@ -9,12 +9,13 @@ from models.game import GameRecord
 from utils.auth import decode_token, get_current_user
 from schemas.common import ResponseModel
 from services.game_service import GomokuGame
+from services.state_store import state_store
 import asyncio
 import json
 import random
 import string
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 router = APIRouter(prefix="/api/room", tags=["房间"])
 
@@ -23,14 +24,9 @@ class RoomConnectionManager:
     """房间连接管理器：精确追踪 host / guest 的连接"""
 
     def __init__(self):
-        self.games: Dict[int, GomokuGame] = {}
         self.host_conns: Dict[int, WebSocket] = {}
         self.guest_conns: Dict[int, WebSocket] = {}
         self.main_loop = None  # 启动时由 set_main_loop 注入
-        # 待处理的悔棋请求：room_id -> (请求方 user_id, 发起时间戳)
-        self.pending_undo: Dict[int, Tuple[int, float]] = {}
-        # 待处理悔棋请求的超时清理任务：room_id -> asyncio.Task
-        self.pending_undo_tasks: Dict[int, asyncio.Task] = {}
         # 单次悔棋请求的有效秒数
         self.UNDO_REQUEST_TIMEOUT = 30
 
@@ -83,14 +79,10 @@ class RoomConnectionManager:
         return conns
 
     def drop_game(self, room_id: int):
-        self.games.pop(room_id, None)
+        state_store.delete_game("room", room_id)
 
     def clear_pending_undo(self, room_id: int):
-        """取消待处理的悔棋请求（同意/拒绝/超时/断线时调用）"""
-        self.pending_undo.pop(room_id, None)
-        task = self.pending_undo_tasks.pop(room_id, None)
-        if task and not task.done():
-            task.cancel()
+        state_store.clear_pending_undo(room_id)
 
     async def _undo_timeout(self, room_id: int, requester_id: int):
         """30s 后还没收到对方的回应 → 自动撤回请求并通知请求方"""
@@ -99,7 +91,8 @@ class RoomConnectionManager:
         except asyncio.CancelledError:
             return
         # 期间已被处理则跳过
-        if self.pending_undo.get(room_id, (None,))[0] != requester_id:
+        pending = state_store.get_pending_undo(room_id)
+        if not pending or pending.get("requester_id") != requester_id:
             return
         self.clear_pending_undo(room_id)
         # 找到请求方的连接推送超时消息
@@ -120,14 +113,11 @@ class RoomConnectionManager:
     def start_undo_request(
         self, room_id: int, requester_id: int
     ) -> Optional[asyncio.Task]:
-        """发起一次悔棋请求：登记 + 启动超时任务，返回 task 用于取消"""
-        if room_id in self.pending_undo:
+        if not state_store.create_pending_undo(room_id, requester_id):
             return None
-        self.pending_undo[room_id] = (requester_id, time.time())
         if self.main_loop is None:
             return None
         task = self.main_loop.create_task(self._undo_timeout(room_id, requester_id))
-        self.pending_undo_tasks[room_id] = task
         return task
 
     def push_to_host(self, room_id: int, payload: dict):
@@ -151,6 +141,14 @@ manager = RoomConnectionManager()
 
 def generate_room_code() -> str:
     return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+
+def load_room_game(room_id: int) -> Optional[GomokuGame]:
+    return state_store.load_game("room", room_id)
+
+
+def save_room_game(room_id: int, game: GomokuGame):
+    state_store.save_game("room", room_id, game, state_store.ROOM_TTL_SECONDS)
 
 
 def _serialize_room(room: Room, host_name: str = None, guest_name: str = None) -> dict:
@@ -204,7 +202,7 @@ def get_current_room(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    waiting_threshold = datetime.utcnow() - timedelta(minutes=5)
+    waiting_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
     room = (
         db.query(Room)
         .filter(
@@ -326,10 +324,11 @@ def join_room(
     db.commit()
     db.refresh(room)
 
-    manager.games[room.id] = GomokuGame()
+    game = GomokuGame()
+    save_room_game(room.id, game)
 
     # 立即推送 opponent_joined + 最新 game_state 给 host 的 WebSocket
-    game_dict = manager.games[room.id].to_dict() if room.id in manager.games else None
+    game_dict = game.to_dict()
     manager.push_to_host(
         room.id,
         {"type": "opponent_joined", "guest_id": current_user.id},
@@ -405,11 +404,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
         role = manager.attach(room_id, user_id, websocket)
 
         # 初始化 game 对象（如果还没有）
-        if (
-            room_id not in manager.games
-            and room.status == "playing"
-            and room.game_record_id
-        ):
+        game = load_room_game(room_id)
+        if game is None and room.status == "playing" and room.game_record_id:
             game_record = (
                 db.query(GameRecord)
                 .filter(GameRecord.id == room.game_record_id)
@@ -420,7 +416,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                 for move in game_record.moves or []:
                     if len(move) >= 3:
                         game.add_move(move[0], move[1], move[2])
-                manager.games[room_id] = game
+                save_room_game(room_id, game)
 
         # 发送身份与初始状态
         if room.host_id == user_id:
@@ -432,8 +428,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
             {
                 "type": "game_state",
                 "game": (
-                    manager.games[room_id].to_dict()
-                    if room_id in manager.games
+                    load_room_game(room_id).to_dict()
+                    if load_room_game(room_id)
                     else None
                 ),
                 "status": room.status,
@@ -455,10 +451,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
             t = data.get("type")
 
             if t == "move":
-                if room_id not in manager.games:
+                game = load_room_game(room_id)
+                if game is None:
                     continue
-
-                game = manager.games[room_id]
                 player_color = "black" if room.host_id == user_id else "white"
                 stone = (
                     GomokuGame.BLACK if player_color == "black" else GomokuGame.WHITE
@@ -487,6 +482,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                             else room.guest_id
                         )
                         game_record.status = "completed"
+                        game_record.ended_at = datetime.now(timezone.utc)
                         room.status = "completed"
 
                         winner_user = (
@@ -513,6 +509,11 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
 
                     db.commit()
 
+                if winner:
+                    state_store.delete_game("room", room_id)
+                else:
+                    save_room_game(room_id, game)
+
                 move_data = {
                     "type": "move",
                     "row": data["row"],
@@ -530,14 +531,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
 
             elif t == "undo":
                 # ── 悔棋请求阶段：仅登记+通知对方，不直接撤销 ──
-                if (
-                    room_id not in manager.games
-                    or len(manager.games[room_id].moves) < 1
-                ):
+                game = load_room_game(room_id)
+                if game is None or len(game.moves) < 1:
                     continue
 
                 # 已有待处理请求则忽略（防止双击重复发）
-                if room_id in manager.pending_undo:
+                if state_store.get_pending_undo(room_id):
                     continue
 
                 requester_id = user_id
@@ -578,21 +577,17 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
 
             elif t == "undo_accept":
                 # ── 对方同意：真正执行悔棋并广播 ──
-                pending = manager.pending_undo.get(room_id)
+                pending = state_store.get_pending_undo(room_id)
                 if not pending:
                     continue
-                requester_id, _ = pending
+                requester_id = pending.get("requester_id")
                 # 只允许"被请求方"接受（也就是 user_id != requester_id）
                 if user_id == requester_id:
                     continue
-                if (
-                    room_id not in manager.games
-                    or len(manager.games[room_id].moves) < 1
-                ):
+                game = load_room_game(room_id)
+                if game is None or len(game.moves) < 1:
                     manager.clear_pending_undo(room_id)
                     continue
-
-                game = manager.games[room_id]
                 undone = game.undo_move()
                 if not undone:
                     manager.clear_pending_undo(room_id)
@@ -609,6 +604,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                     game_record.moves = game.moves
                     flag_modified(game_record, "moves")
                     db.commit()
+
+                save_room_game(room_id, game)
 
                 manager.clear_pending_undo(room_id)
 
@@ -627,10 +624,10 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
 
             elif t == "undo_decline":
                 # ── 对方拒绝：通知请求方并清理 ──
-                pending = manager.pending_undo.get(room_id)
+                pending = state_store.get_pending_undo(room_id)
                 if not pending:
                     continue
-                requester_id, _ = pending
+                requester_id = pending.get("requester_id")
                 if user_id == requester_id:
                     continue
                 manager.clear_pending_undo(room_id)
@@ -652,7 +649,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                         pass
 
             elif t == "timeout":
-                if room_id not in manager.games:
+                if load_room_game(room_id) is None:
                     continue
 
                 player_color = "black" if room.host_id == user_id else "white"
@@ -673,8 +670,20 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                         else room.guest_id
                     )
                     game_record.status = "completed"
+                    game_record.ended_at = datetime.now(timezone.utc)
                     room.status = "completed"
+
+                    winner_user = (
+                        db.query(User).filter(User.id == game_record.winner_id).first()
+                    )
+                    loser_user = db.query(User).filter(User.id == user_id).first()
+                    if winner_user:
+                        winner_user.wins += 1
+                    if loser_user:
+                        loser_user.losses += 1
                     db.commit()
+
+                state_store.delete_game("room", room_id)
 
                 for conn in manager.all_conns(room_id):
                     try:
@@ -702,8 +711,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
         try:
             manager.detach(room_id, websocket)
             # 断线方如果是悔棋请求方 → 自动取消待处理请求（避免对方弹窗干等）
-            pending = manager.pending_undo.get(room_id)
-            if pending and pending[0] == user_id:
+            pending = state_store.get_pending_undo(room_id)
+            if pending and pending.get("requester_id") == user_id:
                 manager.clear_pending_undo(room_id)
         except Exception:
             pass

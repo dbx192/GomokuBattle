@@ -140,6 +140,14 @@ python seed_users.py
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `DATABASE_URL` | `sqlite:///./gomoku.db` | SQLAlchemy 连接串 |
+| `DB_POOL_MIN` | `5` | 预留给生产环境的最小连接池参数占位 |
+| `DB_POOL_MAX` | `100` | PostgreSQL 连接池大小 |
+| `DB_POOL_TIMEOUT` | `30` | 获取数据库连接的超时时间（秒） |
+| `DB_COMMAND_TIMEOUT` | `30` | PostgreSQL 单条语句超时（秒） |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis 连接串 |
+| `REDIS_ENABLED` | `false` | 是否启用 Redis 状态存储 |
+| `LOGIN_RATE_LIMIT_MAX_ATTEMPTS` | `5` | 登录失败最大尝试次数 |
+| `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `300` | 登录失败限流窗口（秒） |
 | `SECRET_KEY` | `gomoku-battle-secret-key-change-in-production` | JWT 签名密钥（**生产必须改**） |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `10080`（7 天） | JWT 过期时间 |
 
@@ -218,7 +226,7 @@ python seed_users.py
 
 ## 数据库
 
-启动时自动创建 SQLite 表（`database.init_db`）：
+启动时自动创建数据库表（`database.init_db`），推荐生产使用 PostgreSQL：
 
 - `users` — 用户
 - `rooms` — 房间（带 6 位 `room_code` 唯一索引）
@@ -234,7 +242,14 @@ python seed_users.py
 export DATABASE_URL="postgresql://user:pass@localhost/gomoku"
 ```
 
-`database.py` 会自动识别（`sqlite` 才传 `check_same_thread=False`）。
+`database.py` 会自动识别数据库类型：`sqlite` 才传 `check_same_thread=False`，`postgresql` 会启用连接池和 `statement_timeout`。
+
+### Q: Redis 现在做什么？
+
+- `AI` 对局状态存 Redis，服务重启后只要 Redis 还在，未结束棋局不会丢
+- 房间实时对局状态存 Redis，避免多进程/单实例重启时直接丢盘面
+- 房间悔棋请求也存 Redis，避免请求状态只留在单个 worker 内存里
+- 登录限流也走 Redis，默认同一 `用户名 + IP` 在 `300s` 内最多失败 `5` 次
 
 ### Q: 调整 JWT 过期？
 
@@ -249,8 +264,10 @@ export ACCESS_TOKEN_EXPIRE_MINUTES=1440   # 24 小时
 ### Q: 部署到生产？
 
 1. 设置强 `SECRET_KEY`（**必须**）
-2. 用 PostgreSQL 替代 SQLite
-3. `uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4`（注意：WebSocket 状态在内存，workers > 1 需要 sticky session 或 Redis）
+2. 配置 `DATABASE_URL` 指向 PostgreSQL
+3. 配置 `REDIS_URL` 并开启 `REDIS_ENABLED=true`
+4. 运行 `uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4`
+5. WebSocket 连接本身仍是单连接绑定单 worker，但棋局状态已经迁到 Redis，不会因 worker 切换或进程重启直接丢失
 
 ## 开发规范
 

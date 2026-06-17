@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
 import mimetypes
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -6,14 +7,25 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
 from routers import auth, game, room, ranking
-from routers.room import notify_room_expired
+from routers.room import manager, notify_room_expired
+from services.state_store import state_store
 import asyncio
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from database import SessionLocal
 from models.room import Room
 
-app = FastAPI(title="GomokuBattle", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    state_store.ping()
+    manager.set_main_loop(asyncio.get_running_loop())
+    asyncio.create_task(cleanup_expired_rooms())
+    yield
+
+
+app = FastAPI(title="GomokuBattle", version="1.0.0", lifespan=lifespan)
 
 # ── 注册常见静态资源 MIME（避免 woff2/woff 字体被当 text/plain 发送，浏览器会拒收） ──
 mimetypes.add_type("font/woff2", ".woff2")
@@ -79,22 +91,12 @@ app.include_router(room.router)
 app.include_router(ranking.router)
 
 
-@app.on_event("startup")
-async def startup():
-    init_db()
-    # 把主事件循环注入 room 路由器，让 HTTP 同步端点能安全推送 WebSocket 消息
-    from routers.room import manager
-
-    manager.set_main_loop(asyncio.get_running_loop())
-    asyncio.create_task(cleanup_expired_rooms())
-
-
 async def cleanup_expired_rooms():
     while True:
         await asyncio.sleep(10)
         try:
             db = SessionLocal()
-            threshold = datetime.utcnow() - timedelta(minutes=5)
+            threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
             expired = (
                 db.query(Room)
                 .filter(Room.status == "waiting", Room.created_at < threshold)

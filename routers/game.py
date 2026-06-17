@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from typing import List
 from database import get_db
@@ -14,14 +15,11 @@ from schemas.game import (
     GameRecordResponse,
 )
 from schemas.common import ResponseModel, ListData
-from schemas.user import UserStats
 from utils.auth import get_current_user
 from services.game_service import GomokuGame
-import json
+from services.state_store import state_store
 
 router = APIRouter(prefix="/api/game", tags=["游戏"])
-
-ai_games = {}
 
 
 @router.post("/ai/start", response_model=ResponseModel[GameStartResponse])
@@ -40,7 +38,7 @@ async def start_ai_game(
     db.commit()
     db.refresh(game_record)
 
-    ai_games[game_record.id] = game
+    state_store.save_game("ai", game_record.id, game, state_store.AI_TTL_SECONDS)
 
     return ResponseModel(
         message="游戏开始",
@@ -56,10 +54,9 @@ async def make_ai_move(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if move_data.game_id not in ai_games:
+    game = state_store.load_game("ai", move_data.game_id)
+    if game is None:
         raise HTTPException(status_code=404, detail="游戏不存在或已结束")
-
-    game = ai_games[move_data.game_id]
 
     if not game.add_move(move_data.row, move_data.col, GomokuGame.BLACK):
         raise HTTPException(status_code=400, detail="该位置已有棋子")
@@ -74,8 +71,10 @@ async def make_ai_move(
     if winner:
         game_record.winner_id = current_user.id if winner == GomokuGame.BLACK else None
         game_record.status = "completed"
+        game_record.ended_at = game_record.ended_at or datetime.now(timezone.utc)
         current_user.wins += 1
         db.commit()
+        state_store.delete_game("ai", move_data.game_id)
 
         return ResponseModel(
             data=AiMoveResponse(
@@ -100,8 +99,10 @@ async def make_ai_move(
     if winner:
         game_record.winner_id = None
         game_record.status = "completed"
+        game_record.ended_at = game_record.ended_at or datetime.now(timezone.utc)
         current_user.losses += 1
         db.commit()
+        state_store.delete_game("ai", move_data.game_id)
 
         return ResponseModel(
             data=AiMoveResponse(
@@ -120,6 +121,7 @@ async def make_ai_move(
         )
 
     db.commit()
+    state_store.save_game("ai", move_data.game_id, game, state_store.AI_TTL_SECONDS)
 
     return ResponseModel(
         data=AiMoveResponse(
@@ -137,10 +139,9 @@ async def undo_ai_move(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if move_data.game_id not in ai_games:
+    game = state_store.load_game("ai", move_data.game_id)
+    if game is None:
         raise HTTPException(status_code=404, detail="游戏不存在")
-
-    game = ai_games[move_data.game_id]
 
     if len(game.moves) < 2:
         return ResponseModel(
@@ -156,6 +157,8 @@ async def undo_ai_move(
     if game_record:
         game_record.moves = game.moves
         db.commit()
+
+    state_store.save_game("ai", move_data.game_id, game, state_store.AI_TTL_SECONDS)
 
     return ResponseModel(data=UndoResponse(success=True, message="撤销成功"))
 
