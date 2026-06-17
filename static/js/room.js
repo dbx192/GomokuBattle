@@ -32,6 +32,8 @@ const UNDO_TIMEOUT_SEC = 30;
 //   incoming   = 我方收到了对家的请求，弹窗等待我操作
 let undoFlow = null;             // 'requesting' | 'incoming' | null
 let undoCountdownTimer = null;   // 悔棋弹窗的倒计时 interval
+let undoRequestFallbackTimer = null;
+let roomRestoreAttempted = false;
 
 // 历史房间分页
 const HISTORY_PAGE_SIZE = 15;
@@ -108,9 +110,11 @@ function checkAuth() {
                 // 重新拉取历史（可能初次未登录态下是空数据）
                 loadHistoryList();
 
+                restoreCurrentRoom();
+
                 const urlParams = new URLSearchParams(window.location.search);
                 const roomCode = urlParams.get('code');
-                if (roomCode) {
+                if (roomCode && !roomId) {
                     $('#joinRoomCode').val(roomCode.toUpperCase());
                     joinRoom();
                 }
@@ -253,6 +257,7 @@ function handleRoomExpired() {
         ws = null;
     }
     gameOver = true;
+    clearRoomSession();
     toastr.warning('房间已过期（5分钟未匹配）', '房间关闭', { timeOut: 5000 });
     setTimeout(backToLobby, 800);
 }
@@ -294,6 +299,7 @@ function backToLobby() {
     loadRoomList();
     loadHistoryList();
     drawBoard();
+    clearRoomSession();
 }
 
 function leaveRoom() {
@@ -374,6 +380,7 @@ function createRoom() {
                 stopRoomListPolling();
                 roomId = res.data.id;
                 playerColor = 'black';
+                persistRoomSession(res.data);
                 gameStarted = false;
                 gameOver = false;
                 isMyTurn = false;
@@ -429,38 +436,10 @@ function joinRoom() {
     API.post('/api/room/join/' + code)
         .done(res => {
             if (res.code === 200) {
-                stopRoomListPolling();
-                stopRoomExpiryCheck();
-                roomId = res.data.room_id;
-                playerColor = res.data.player_color;
-                gameStarted = false;
-                gameOver = false;
-                isMyTurn = false;
-                winningLine = null;
-                lastMove = null;
-                currentPlayer = 'black';
-                board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-
-                $('#lobbyView').hide();
-                $('#gameView').show();
-                $('#yourColorInfo').show();
-                $('#yourColor').text(playerColor === 'black' ? '黑棋' : '白棋');
-
-                $('#gameRoomCodeCard').show();
-                $('#gameRoomCode').text(code);
-                hideWaiting();
-                $('#roomStatus').text('对手已就位，游戏开始！').removeClass('bg-warning').addClass('bg-success');
-
-                if (playerColor === 'white') {
-                    $('#whitePlayer').text('你');
-                    $('#blackPlayer').text('对手');
-                } else {
-                    $('#blackPlayer').text('你');
-                    $('#whitePlayer').text('对手');
-                }
-
-                connectWebSocket();
-                loadRoomInfo();
+                enterRoomSession({
+                    ...res.data,
+                    room_code: res.data.room_code || code,
+                });
             } else {
                 toastr.error(res.message || '加入房间失败');
             }
@@ -838,6 +817,7 @@ function handleWSMessage(data) {
 
         case 'undo':
             // 真正的悔棋执行：服务器在双方同意后才广播这条
+            closeUndoModals();
             if (data.row !== undefined && data.col !== undefined) {
                 board[data.row][data.col] = null;
                 // 悔棋后应该由被悔棋方重下，所以当前玩家就是被悔棋的玩家
@@ -929,7 +909,8 @@ function requestUndo() {
     ws.send(JSON.stringify({ type: 'undo' }));
     // undo_sent 到达时会真正弹出等待弹窗（依赖服务器回执确定超时时间）
     // 但先给一个兜底超时：万一服务器没回（断线等），10s 后强制解锁按钮
-    setTimeout(() => {
+    stopUndoRequestFallbackTimer();
+    undoRequestFallbackTimer = setTimeout(() => {
         if (undoFlow === 'requesting') {
             closeUndoModals();
             toastr.warning('悔棋请求未送达，请稍后再试');
@@ -1006,8 +987,99 @@ function stopUndoCountdown() {
     }
 }
 
+function stopUndoRequestFallbackTimer() {
+    if (undoRequestFallbackTimer) {
+        clearTimeout(undoRequestFallbackTimer);
+        undoRequestFallbackTimer = null;
+    }
+}
+
+function enterRoomSession(roomData) {
+    stopRoomListPolling();
+    stopRoomExpiryCheck();
+    roomId = roomData.room_id;
+    playerColor = roomData.player_color;
+    persistRoomSession(roomData);
+    gameStarted = false;
+    gameOver = false;
+    isMyTurn = false;
+    winningLine = null;
+    lastMove = null;
+    currentPlayer = 'black';
+    board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+
+    $('#lobbyView').hide();
+    $('#gameView').show();
+    $('#yourColorInfo').show();
+    $('#yourColor').text(playerColor === 'black' ? '黑棋' : '白棋');
+
+    $('#gameRoomCodeCard').show();
+    $('#gameRoomCode').text(roomData.room_code || '------');
+
+    if (playerColor === 'white') {
+        $('#whitePlayer').text('你');
+        $('#blackPlayer').text('对手');
+    } else {
+        $('#blackPlayer').text('你');
+        $('#whitePlayer').text(roomData.status === 'waiting' ? '等待中...' : '对手');
+    }
+
+    if (roomData.status === 'waiting') {
+        showWaiting();
+        $('#roomStatus').text('等待对手加入...').removeClass('bg-success').addClass('bg-warning');
+        if (roomData.expires_at) {
+            startRoomExpiryCheck(roomData.expires_at);
+        }
+    } else {
+        hideWaiting();
+        $('#roomStatus').text('正在恢复对局...').removeClass('bg-warning').addClass('bg-success');
+    }
+
+    connectWebSocket();
+    loadRoomInfo();
+}
+
+function persistRoomSession(roomData) {
+    if (!roomData) return;
+    localStorage.setItem('room_session', JSON.stringify(roomData));
+}
+
+function clearRoomSession() {
+    localStorage.removeItem('room_session');
+}
+
+function restoreRoomView(roomData) {
+    if (!roomData || !roomData.room_id || !roomData.player_color) return;
+    enterRoomSession(roomData);
+}
+
+function restoreCurrentRoom() {
+    if (roomRestoreAttempted) return;
+    roomRestoreAttempted = true;
+
+    const cached = localStorage.getItem('room_session');
+    if (cached) {
+        try {
+            const roomData = JSON.parse(cached);
+            if (roomData && roomData.room_id && roomData.room_code) {
+                restoreRoomView(roomData);
+                return;
+            }
+        } catch (e) {}
+    }
+
+    API.get('/api/room/current')
+        .done(res => {
+            if (res.code === 200 && res.data && res.data.room_id) {
+                persistRoomSession(res.data);
+                restoreRoomView(res.data);
+            }
+        });
+}
+
 function closeUndoModals() {
     stopUndoCountdown();
+    stopUndoRequestFallbackTimer();
     undoFlow = null;
     $('#undoBtn').prop('disabled', false);
     ['undoRequestModal', 'undoWaitingModal'].forEach(id => {

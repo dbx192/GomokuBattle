@@ -38,19 +38,25 @@ class RoomConnectionManager:
 
     def attach(self, room_id: int, user_id: int, ws: WebSocket) -> str:
         """根据 user_id 归类到 host 或 guest 连接。返回角色 'host' | 'guest'"""
-        role = None
-        if user_id not in (None,):
-            # 简单做法：第一次连接视为 host，第二次视为 guest
-            if room_id not in self.host_conns:
+        role = "observer"
+        if user_id is None:
+            return role
+
+        db = SessionLocal()
+        try:
+            room = db.query(Room).filter(Room.id == room_id).first()
+            if not room:
+                return role
+
+            if room.host_id == user_id:
                 self.host_conns[room_id] = ws
                 role = "host"
-            elif room_id not in self.guest_conns:
+            elif room.guest_id == user_id:
                 self.guest_conns[room_id] = ws
                 role = "guest"
-            else:
-                # 兜底：若两方都已存在，作为观察者
-                role = "observer"
-        return role
+            return role
+        finally:
+            db.close()
 
     def detach(self, room_id: int, ws: WebSocket):
         if self.host_conns.get(room_id) is ws:
@@ -101,14 +107,18 @@ class RoomConnectionManager:
         # requester_id 是 host 还是 guest 取决于谁连的房间，这里用 all_conns 都查一遍
         for conn in self.all_conns(room_id):
             try:
-                await conn.send_json({
-                    "type": "undo_timeout",
-                    "message": "对方未响应，悔棋请求已超时",
-                })
+                await conn.send_json(
+                    {
+                        "type": "undo_timeout",
+                        "message": "对方未响应，悔棋请求已超时",
+                    }
+                )
             except Exception:
                 pass
 
-    def start_undo_request(self, room_id: int, requester_id: int) -> Optional[asyncio.Task]:
+    def start_undo_request(
+        self, room_id: int, requester_id: int
+    ) -> Optional[asyncio.Task]:
         """发起一次悔棋请求：登记 + 启动超时任务，返回 task 用于取消"""
         if room_id in self.pending_undo:
             return None
@@ -188,6 +198,40 @@ def get_room_history(
     return ResponseModel(data=[_serialize_room(r) for r in rooms])
 
 
+@router.get("/current", response_model=ResponseModel[Optional[dict]])
+def get_current_room(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    room = (
+        db.query(Room)
+        .filter(
+            (Room.host_id == current_user.id) | (Room.guest_id == current_user.id),
+            Room.status.in_(["waiting", "playing"]),
+        )
+        .order_by(Room.created_at.desc())
+        .first()
+    )
+
+    if not room:
+        return ResponseModel(data=None)
+
+    return ResponseModel(
+        data={
+            "room_id": room.id,
+            "room_code": room.room_code,
+            "player_color": "black" if room.host_id == current_user.id else "white",
+            "status": room.status,
+            "is_host": room.host_id == current_user.id,
+            "expires_at": (
+                (room.created_at.timestamp() + 300) * 1000
+                if room.status == "waiting"
+                else None
+            ),
+        }
+    )
+
+
 @router.post("/create", response_model=ResponseModel[dict])
 def create_room(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
@@ -225,22 +269,38 @@ def join_room(
         raise HTTPException(status_code=410, detail="房间已过期")
     if room.status == "completed":
         raise HTTPException(status_code=410, detail="对局已结束")
-    if room.status == "playing" and room.guest_id and room.guest_id != current_user.id:
-        raise HTTPException(status_code=409, detail="房间已开始，请等待本局结束")
 
     if room.host_id == current_user.id:
-        raise HTTPException(status_code=400, detail="不能加入自己的房间")
+        return ResponseModel(
+            message="已返回房间",
+            data={
+                "room_id": room.id,
+                "game_id": room.game_record_id,
+                "player_color": "black",
+                "room_code": room.room_code,
+                "status": room.status,
+                "expires_at": (
+                    (room.created_at.timestamp() + 300) * 1000
+                    if room.status == "waiting"
+                    else None
+                ),
+            },
+        )
 
-    # 已是 guest，直接返回（用于重连）
-    if room.guest_id == current_user.id and room.game_record_id:
+    if room.guest_id == current_user.id:
         return ResponseModel(
             message="已加入房间",
             data={
                 "room_id": room.id,
                 "game_id": room.game_record_id,
                 "player_color": "white",
+                "room_code": room.room_code,
+                "status": room.status,
             },
         )
+
+    if room.status == "playing":
+        raise HTTPException(status_code=409, detail="房间已开始，请等待本局结束")
 
     if room.status != "waiting":
         raise HTTPException(status_code=404, detail="房间不存在或已开始")
@@ -280,7 +340,13 @@ def join_room(
 
     return ResponseModel(
         message="加入成功",
-        data={"room_id": room.id, "game_id": game_record.id, "player_color": "white"},
+        data={
+            "room_id": room.id,
+            "game_id": game_record.id,
+            "player_color": "white",
+            "room_code": room.room_code,
+            "status": room.status,
+        },
     )
 
 
@@ -543,12 +609,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
 
                 for conn in manager.all_conns(room_id):
                     try:
-                        await conn.send_json({
-                            "type": "undo",
-                            "row": row,
-                            "col": col,
-                            "player": player_str,
-                        })
+                        await conn.send_json(
+                            {
+                                "type": "undo",
+                                "row": row,
+                                "col": col,
+                                "player": player_str,
+                            }
+                        )
                     except Exception:
                         pass
 
@@ -569,10 +637,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                 )
                 if requester_conn:
                     try:
-                        await requester_conn.send_json({
-                            "type": "undo_declined",
-                            "message": "对方拒绝了你的悔棋请求",
-                        })
+                        await requester_conn.send_json(
+                            {
+                                "type": "undo_declined",
+                                "message": "对方拒绝了你的悔棋请求",
+                            }
+                        )
                     except Exception:
                         pass
 
