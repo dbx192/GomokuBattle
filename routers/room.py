@@ -14,6 +14,7 @@ import json
 import random
 import string
 import time
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/room", tags=["房间"])
 
@@ -203,11 +204,15 @@ def get_current_room(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    waiting_threshold = datetime.utcnow() - timedelta(minutes=5)
     room = (
         db.query(Room)
         .filter(
             (Room.host_id == current_user.id) | (Room.guest_id == current_user.id),
-            Room.status.in_(["waiting", "playing"]),
+            (
+                (Room.status == "playing")
+                | ((Room.status == "waiting") & (Room.created_at >= waiting_threshold))
+            ),
         )
         .order_by(Room.created_at.desc())
         .first()

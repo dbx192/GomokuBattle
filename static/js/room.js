@@ -17,7 +17,6 @@ let wsReconnectAttempts = 0;
 let wsReconnectTimer = null;
 let gameStarted = false;
 
-let roomListInterval = null;
 let roomCheckInterval = null;
 let roomExpireTime = null;
 let roomCountdownInterval = null;
@@ -87,7 +86,6 @@ $(function() {
     drawBoard();
     loadRoomList();
     loadHistoryList();
-    roomListInterval = setInterval(loadRoomList, 5000);
 
     checkAuth();
 });
@@ -157,13 +155,6 @@ function showAuthNav(user) {
                 </a>
             </li>
         `);
-    }
-}
-
-function stopRoomListPolling() {
-    if (roomListInterval) {
-        clearInterval(roomListInterval);
-        roomListInterval = null;
     }
 }
 
@@ -295,7 +286,6 @@ function backToLobby() {
     $('#leaveRoomBtn').prop('disabled', false).html('<i class="bi bi-box-arrow-left"></i> 离开房间');
     $('#turnTimer').hide();
     $('#yourColorInfo').hide();
-    roomListInterval = setInterval(loadRoomList, 5000);
     loadRoomList();
     loadHistoryList();
     drawBoard();
@@ -377,7 +367,6 @@ function createRoom() {
     API.post('/api/room/create')
         .done(res => {
             if (res.code === 200) {
-                stopRoomListPolling();
                 roomId = res.data.id;
                 playerColor = 'black';
                 persistRoomSession(res.data);
@@ -995,7 +984,6 @@ function stopUndoRequestFallbackTimer() {
 }
 
 function enterRoomSession(roomData) {
-    stopRoomListPolling();
     stopRoomExpiryCheck();
     roomId = roomData.room_id;
     playerColor = roomData.player_color;
@@ -1061,10 +1049,13 @@ function restoreCurrentRoom() {
     if (cached) {
         try {
             const roomData = JSON.parse(cached);
-            if (roomData && roomData.room_id && roomData.room_code) {
+            const isFreshWaiting = roomData.status === 'waiting' && roomData.expires_at && roomData.expires_at > Date.now();
+            const isPlayable = roomData.status === 'playing';
+            if (roomData && roomData.room_id && roomData.room_code && (isFreshWaiting || isPlayable)) {
                 restoreRoomView(roomData);
                 return;
             }
+            clearRoomSession();
         } catch (e) {}
     }
 
