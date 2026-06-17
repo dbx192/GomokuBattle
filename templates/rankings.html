@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{# 排行榜页 #}
+{% set active = 'rankings' %}
+{% set title = '排行榜 — GomokuBattle' %}
+
+{% block content %}
+<div class="container py-3 page-section">
+
+    {# ── 紧凑头部：标题 + 筛选 ── #}
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <div class="d-flex align-items-baseline gap-2">
+            <h1 class="rankings-title mb-0">
+                <i class="bi bi-trophy-fill text-gold"></i>
+                <span class="text-gradient">排行榜</span>
+            </h1>
+            <small class="text-muted d-none d-sm-inline">胜者为王 · 以战绩论英雄</small>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <select id="limitSelect" class="form-select form-select-sm" style="width:auto;">
+                <option value="20" selected>前 20 名</option>
+                <option value="50">前 50 名</option>
+                <option value="100">前 100 名</option>
+            </select>
+            <div class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" id="autoRefresh" style="cursor:pointer;">
+                <label class="form-check-label small" for="autoRefresh" style="cursor:pointer;">30s 自动</label>
+            </div>
+            <button id="refreshBtn" class="btn btn-sm btn-outline-light" title="刷新">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+    </div>
+
+    {# ── 统计条 ── #}
+    <div class="stats-strip mb-3">
+        <div class="stat-mini">
+            <div class="stat-mini-label">玩家</div>
+            <div class="stat-mini-value" id="totalPlayers">—</div>
+        </div>
+        <div class="stat-mini">
+            <div class="stat-mini-label">总对局</div>
+            <div class="stat-mini-value" id="totalGames">—</div>
+        </div>
+        <div class="stat-mini">
+            <div class="stat-mini-label">最高胜率</div>
+            <div class="stat-mini-value" id="topWinRate">—</div>
+        </div>
+        <div class="stat-mini stat-mini-highlight" id="myRankMini" style="display:none;">
+            <div class="stat-mini-label">我的排名</div>
+            <div class="stat-mini-value">
+                <span id="myRankMedalMini">—</span>
+                <small class="text-muted ms-1" id="myRankTextMini"></small>
+            </div>
+        </div>
+    </div>
+
+    {# ── 领奖台 ── #}
+    <div class="card mb-3">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-award"></i> 领奖台</span>
+            <small class="text-muted">
+                <i class="bi bi-arrow-repeat"></i> <span id="lastUpdate">—</span>
+            </small>
+        </div>
+        <div class="card-body py-2">
+            <div id="podium" class="podium podium-compact">
+                <div class="text-center text-muted py-3">
+                    <div class="spinner-border spinner-border-sm"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ── 完整榜单 ── #}
+    <div class="card">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-list-ol"></i> 完整榜单</span>
+            <small class="text-muted">共 <span id="tableTotal">0</span> 人</small>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 rankings-table">
+                    <thead>
+                        <tr>
+                            <th style="width:72px;">排名</th>
+                            <th>玩家</th>
+                            <th style="width:90px;">段位</th>
+                            <th class="text-end" style="width:70px;">胜</th>
+                            <th class="text-end" style="width:70px;">负</th>
+                            <th style="width:200px;">胜率</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rankingsTable">
+                        <tr>
+                            <td colspan="6" class="text-center text-muted py-3">
+                                <div class="spinner-border spinner-border-sm"></div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="emptyState" class="text-center text-muted py-4" style="display:none;">
+                <i class="bi bi-inbox" style="font-size:1.5rem;opacity:0.5;"></i>
+                <p class="mt-2 mb-0 small">暂无玩家数据</p>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/rankings.js"></script>
+{% endblock %}

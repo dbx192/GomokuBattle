@@ -1370,6 +1370,243 @@ a.room-row:hover,
     }
 }
 
+/* ── Podium (领奖台 Top 3) ── */
+.podium {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr 1fr;
+    gap: 0.75rem;
+    align-items: end;
+    padding: 0.25rem 0.25rem 0;
+}
+
+.podium-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 0.75rem 0.5rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    transition: all var(--transition-base);
+}
+
+.podium-slot:hover {
+    border-color: var(--border-amber);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.podium-slot-1 {
+    background: linear-gradient(180deg, rgba(212, 165, 116, 0.18) 0%, var(--bg-elevated) 80%);
+    border-color: var(--border-amber);
+    box-shadow: var(--shadow-gold);
+    min-height: 140px;
+}
+
+.podium-slot-2,
+.podium-slot-3 {
+    min-height: 110px;
+}
+
+.podium-medal {
+    font-size: 1.9rem;
+    line-height: 1;
+    margin-bottom: 0.3rem;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.podium-slot-1 .podium-medal {
+    font-size: 2.4rem;
+}
+
+.podium-name {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    margin-bottom: 0.2rem;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.podium-slot-1 .podium-name {
+    color: var(--gold-bright);
+    font-size: 1.05rem;
+}
+
+.podium-rate {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--gold-bright);
+    letter-spacing: -0.02em;
+    margin-bottom: 0.25rem;
+}
+
+.podium-stats {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+}
+
+@media (max-width: 576px) {
+    .podium {
+        gap: 0.4rem;
+    }
+
+    .podium-slot {
+        padding: 0.5rem 0.3rem;
+    }
+
+    .podium-slot-1 { min-height: 120px; }
+    .podium-slot-2,
+    .podium-slot-3 { min-height: 95px; }
+
+    .podium-medal { font-size: 1.5rem; }
+    .podium-slot-1 .podium-medal { font-size: 1.8rem; }
+    .podium-name { font-size: 0.8rem; }
+    .podium-rate { font-size: 0.85rem; }
+    .podium-stats { font-size: 0.7rem; }
+}
+
+/* ── "我的排名"行高亮 ── */
+#rankingsTable tbody tr.my-rank-row {
+    background: rgba(212, 165, 116, 0.08);
+    border-left: 3px solid var(--gold);
+}
+
+#rankingsTable tbody tr.my-rank-row > * {
+    background-color: rgba(212, 165, 116, 0.08) !important;
+    color: var(--gold-bright);
+    font-weight: 600;
+}
+
+#rankingsTable tbody tr.my-rank-row strong {
+    color: var(--gold-bright);
+}
+
+/* ── Rankings page compact mode ── */
+.rankings-title {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+}
+
+.rankings-title i {
+    margin-right: 0.4rem;
+}
+
+@media (max-width: 576px) {
+    .rankings-title { font-size: 1.25rem; }
+}
+
+/* 统计条 — 横向 4 格（最后一格条件性展示） */
+.stats-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+}
+
+@media (max-width: 768px) {
+    .stats-strip { grid-template-columns: repeat(2, 1fr); }
+}
+
+.stat-mini {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 0.65rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    transition: border-color var(--transition-base);
+}
+
+.stat-mini:hover {
+    border-color: var(--border-medium);
+}
+
+.stat-mini-highlight {
+    background: linear-gradient(135deg, rgba(212, 165, 116, 0.12) 0%, var(--bg-surface) 70%);
+    border-color: var(--border-amber);
+}
+
+.stat-mini-label {
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    line-height: 1;
+}
+
+.stat-mini-value {
+    font-family: var(--font-mono);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-mini-highlight .stat-mini-value {
+    color: var(--gold-bright);
+}
+
+/* 紧凑表格：行高减小 */
+.rankings-table > :not(caption) > * > * {
+    padding: 0.55rem 0.6rem;
+    vertical-align: middle;
+}
+
+.rankings-table thead th {
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+    font-size: 0.78rem;
+}
+
+.rankings-table tbody tr {
+    transition: background var(--transition-base);
+}
+
+/* 胜率单元格：进度条 + 数字 一行展示 */
+.winrate-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.winrate-cell .progress {
+    background: var(--ink-dark);
+    border-radius: 3px;
+    overflow: hidden;
+    flex: 1 1 auto;
+}
+
+.winrate-cell .progress-bar {
+    background: linear-gradient(90deg, var(--jade-dark), var(--jade)) !important;
+    border-radius: 3px;
+    transition: width var(--transition-base);
+}
+
+.winrate-cell .win-rate {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--gold-bright);
+    min-width: 48px;
+    text-align: right;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
 /* ── Animations ── */
 @keyframes float {
     0%, 100% { transform: translateY(0); }

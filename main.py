@@ -68,6 +68,11 @@ async def room_page(request: Request):
     return render(request, "room.html", active="room", title="房间对战 — GomokuBattle")
 
 
+@app.get("/rankings", response_class=HTMLResponse)
+async def rankings_page(request: Request):
+    return render(request, "rankings.html", active="rankings", title="排行榜 — GomokuBattle")
+
+
 app.include_router(auth.router)
 app.include_router(game.router)
 app.include_router(room.router)

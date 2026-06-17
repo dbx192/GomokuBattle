@@ -207,58 +207,5 @@ $(function() {
             });
     });
 
-    $('[data-page="rankings"]').on('click', function(e) {
-        e.preventDefault();
-        loadRankings();
-    });
-
-    function loadRankings() {
-        API.get('/api/rankings')
-            .done(res => {
-                if (res.code === 200) {
-                    $('#homePage').hide();
-                    $('#rankingsPage').show();
-                    renderRankings(res.data);
-                }
-            });
-    }
-
-    function renderRankings(data) {
-        const tbody = $('#rankingsTable');
-        tbody.empty();
-
-        data.forEach((user, index) => {
-            const isTop3 = index < 3;
-            const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : (index + 1);
-            const medalClass = isTop3 ? 'text-warning' : 'text-muted';
-
-            tbody.append(`
-                <tr class="${isTop3 ? 'top-rank' : ''}">
-                    <td><span class="rank-medal ${medalClass}">${medal}</span></td>
-                    <td><strong>${user.username}</strong></td>
-                    <td><span class="badge bg-secondary">${user.rank}</span></td>
-                    <td class="text-success fw-bold">${user.wins}</td>
-                    <td class="text-danger">${user.losses}</td>
-                    <td>
-                        <div class="progress mt-1" style="height: 6px; width: 80px;">
-                            <div class="progress-bar bg-success" style="width: ${user.win_rate}%"></div>
-                        </div>
-                        <small class="win-rate">${user.win_rate}%</small>
-                    </td>
-                </tr>
-            `);
-        });
-    }
-
-    $('[data-page="home"]').on('click', function(e) {
-        e.preventDefault();
-        $('#homePage').show();
-        $('#rankingsPage').hide();
-    });
-
-    // ── 跨页直达：?view=rankings → 直接展示排行榜（避免在 /game /room 上点排行榜无反应） ──
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('view') === 'rankings' && $('#rankingsPage').length) {
-        loadRankings();
-    }
+    checkAuth();
 });
