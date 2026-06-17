@@ -1,289 +1,270 @@
-# GomokuBattle - 五子棋对战平台
+# GomokuBattle — 五子棋对战平台
 
-一个基于 FastAPI 的在线五子棋对战平台，支持人机对战和双人在线对战。
+一个基于 FastAPI 的在线五子棋对战平台，支持人机对战和双人实时房间对战，零广告、纯游戏体验。
 
 ## 功能特性
 
-- 用户注册与登录（JWT 认证）
-- 人机对战（智能 AI 对手）
-- 房间对战（双人实时对战）
-- 实时排行榜
-- 悔棋功能
-- 响应式设计，支持多设备访问
-- WebSocket 实时通信
-- 精美的 UI 界面
+- **人机对战** — 评分策略 AI，Canvas 棋盘，悔棋/重来
+- **房间对战** — 6 位房间码、链接分享、5 分钟自动过期
+- **实时通信** — WebSocket，host/guest 精确寻址，自动重连
+- **房间续接** — 页面刷新不丢局，进度从 `game_records.moves` 恢复
+- **悔棋协议** — AI 即时撤销，房间模式三阶段（请求/同意/拒绝，30s 超时）
+- **落子倒计时** — 房间模式 60s/步，超时判负
+- **排行榜** — Top 3 领奖台 + 完整榜单 + 我的排名高亮 + 30s 自动刷新
+- **历史对局** — AI 模式分页列表 + 房间模式分页列表
+- **统一鉴权** — JWT（HS256，7 天过期），前端 401 自动跳登录
+- **零广告** — 纯净对弈体验
+- **PC 响应式** — Bootstrap 5 Grid，1080P/2K/4K 自适应
 
 ## 技术栈
 
-### 后端
-- FastAPI - 现代化的 Python Web 框架
-- SQLAlchemy - ORM 数据库操作
-- SQLite - 轻量级数据库
-- WebSocket - 实时双向通信
-- JWT - 用户身份验证
-- Passlib - 密码加密
-
-### 前端
-- Bootstrap 5 - 响应式 UI 框架
-- jQuery - JavaScript 库
-- HTML5 Canvas - 棋盘绘制
-- FontAwesome - 图标库
-- Toastr - 消息提示
+| 层 | 技术 |
+|----|------|
+| 后端框架 | FastAPI 0.115 + Uvicorn 0.34 |
+| ORM | SQLAlchemy 2.0 |
+| 数据库 | SQLite（`./gomoku.db`） |
+| 鉴权 | JWT（`python-jose`，HS256） |
+| 密码 | bcrypt 4.x（自动截断 72 字节） |
+| 实时通信 | WebSocket（`fastapi.WebSocket`） |
+| 模板 | Jinja2 3.1 |
+| 前端 UI | Bootstrap 5.3 + Bootstrap Icons 1.11（本地化） |
+| 前端交互 | jQuery 3.7 + Toastr 2.1 |
+| 棋盘绘图 | HTML5 Canvas |
 
 ## 项目结构
 
 ```
 GomokuBattle/
-├── models/              # 数据模型
-│   ├── user.py         # 用户模型
-│   ├── game.py         # 游戏记录模型
-│   └── room.py         # 房间模型
-├── routers/            # 路由处理
-│   ├── auth.py         # 认证路由
-│   ├── game.py         # 游戏路由
-│   ├── room.py         # 房间路由
-│   └── ranking.py      # 排行榜路由
-├── schemas/            # Pydantic 模型
-│   ├── common.py       # 通用模型
-│   ├── game.py         # 游戏模型
-│   └── user.py         # 用户模型
-├── services/           # 业务逻辑
-│   └── game_service.py # 五子棋游戏逻辑
-├── utils/              # 工具函数
-│   └── auth.py         # 认证工具
-├── static/             # 静态资源
-│   ├── css/            # 样式文件
-│   ├── html/           # HTML 页面
-│   └── js/             # JavaScript 文件
-├── main.py             # 应用入口
-├── database.py         # 数据库配置
-├── config.py           # 配置文件
-├── requirements.txt    # 依赖包
-└── README.md           # 项目文档
+├── main.py                  # 应用入口：注册路由 + 启动清理任务 + 全局异常兜底
+├── config.py                # 配置：DATABASE_URL / SECRET_KEY / 过期时间
+├── database.py              # SQLAlchemy 引擎 + SessionLocal + Base + get_db + init_db
+├── seed_users.py            # 一键生成 5 个测试账号
+│
+├── models/                  # SQLAlchemy ORM 模型
+│   ├── user.py              #   User: 用户表
+│   ├── room.py              #   Room: 房间表
+│   └── game.py              #   GameRecord: 对局记录表
+│
+├── routers/                 # FastAPI 路由
+│   ├── auth.py              #   /api/auth/*     注册/登录/me/stats
+│   ├── game.py              #   /api/game/*     AI 对战（start/move/undo/history）
+│   ├── room.py              #   /api/room/*     房间 + WebSocket
+│   └── ranking.py           #   /api/rankings   排行榜
+│
+├── schemas/                 # Pydantic 模型
+│   ├── common.py            #   ResponseModel[T] / ListData[T]
+│   ├── user.py              #   UserCreate / UserLogin / UserResponse / UserStats
+│   └── game.py              #   MoveRequest / MoveResponse / GameStartResponse / ...
+│
+├── services/
+│   └── game_service.py      #   GomokuGame：棋盘逻辑 + AI 评分 + 胜负判定
+│
+├── utils/
+│   └── auth.py              #   bcrypt + JWT + get_current_user + decode_token
+│
+├── templates/               # Jinja2 模板
+│   ├── base.html            #   基础布局：navbar + 登录弹窗 + 脚本插槽
+│   ├── index.html           #   /  首页
+│   ├── game.html            #   /game  人机对战
+│   ├── room.html            #   /room  房间对战
+│   ├── rankings.html        #   /rankings  排行榜
+│   └── partials/
+│       ├── _navbar.html     #     共用导航栏
+│       └── _auth_modals.html#     登录/注册弹窗
+│
+├── static/
+│   ├── css/main.css         #   全局样式（CSS 变量主题）
+│   ├── js/
+│   │   ├── main.js          #     API 封装 + 全局 401 处理
+│   │   ├── game.js          #     /game 页面逻辑
+│   │   ├── room.js          #     /room 页面逻辑（WebSocket + 倒计时 + 悔棋协议）
+│   │   └── rankings.js      #     /rankings 页面逻辑
+│   └── lib/                 #   本地化的第三方库（bootstrap / jquery / toastr / 字体）
+│
+├── PRD.md                   # 产品需求文档（中文）
+├── README.md                # 本文件
+├── requirements.txt         # Python 依赖
+└── .gitignore
 ```
 
-## 安装步骤
+## 快速开始
 
-### 1. 克隆项目
+### 1. 安装依赖
 
 ```bash
-git clone <repository-url>
 cd GomokuBattle
-```
-
-### 2. 创建虚拟环境
-
-```bash
 python -m venv venv
-```
-
-### 3. 激活虚拟环境
-
-Windows:
-```bash
+# Windows
 venv\Scripts\activate
-```
-
-Linux/Mac:
-```bash
+# Linux / macOS
 source venv/bin/activate
-```
 
-### 4. 安装依赖
-
-```bash
 pip install -r requirements.txt
 ```
 
-## 运行方法
-
-### 启动服务器
+### 2. 启动服务
 
 ```bash
+# 方式 A：直接运行
 python main.py
-```
 
-或使用 uvicorn：
-
-```bash
+# 方式 B：uvicorn（推荐用于开发）
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### 访问应用
+默认端口 `8000`，监听 `0.0.0.0`（`main.py:118`）。
 
-- 首页: http://127.0.0.1:8000
-- 人机对战: http://127.0.0.1:8000/game
-- 房间对战: http://127.0.0.1:8000/room
-- API 文档: http://127.0.0.1:8000/docs
+### 3. 一键生成测试账号（可选）
 
-## 使用说明
-
-### 用户注册与登录
-
-1. 访问首页，点击"注册"按钮
-2. 填写用户名、密码和邮箱
-3. 注册成功后使用用户名和密码登录
-
-### 人机对战
-
-1. 登录后进入"人机对战"页面
-2. 点击棋盘交叉点落子（黑棋先手）
-3. AI 会自动回应
-4. 可点击"请求悔棋"撤销上一步
-
-### 房间对战
-
-1. 进入"房间对战"页面
-2. 创建房间或加入已有房间
-3. 复制房间链接分享给好友
-4. 好友点击链接自动加入房间
-5. 双方都进入后游戏开始
-
-### 排行榜
-
-- 查看所有用户的胜场数和败场数
-- 按胜场数排序
-
-## API 接口
-
-### 认证接口
-
-- `POST /api/auth/register` - 用户注册
-- `POST /api/auth/login` - 用户登录
-- `GET /api/auth/me` - 获取当前用户信息
-
-### 游戏接口
-
-- `POST /api/game/ai/move` - AI 落子
-- `POST /api/game/ai/undo` - AI 悔棋
-
-### 房间接口
-
-- `POST /api/room/create` - 创建房间
-- `POST /api/room/join/{room_code}` - 加入房间
-- `GET /api/room/info/{room_id}` - 获取房间信息
-- `GET /api/room/list` - 获取房间列表
-- `WS /api/room/ws/{room_id}` - WebSocket 连接
-
-### 排行榜接口
-
-- `GET /api/ranking` - 获取排行榜
-
-## WebSocket 消息格式
-
-### 客户端发送
-
-```json
-{
-  "type": "move",
-  "row": 7,
-  "col": 7
-}
+```bash
+# 确保服务已启动，再开一个终端
+python seed_users.py
 ```
 
-```json
-{
-  "type": "undo"
-}
-```
+会创建 5 个测试账号：`alice / alice123`、`bob / bob123`、`charlie / charlie123`、`diana / diana123`、`evan / evan123`。
 
-### 服务器发送
+### 4. 访问
 
-```json
-{
-  "type": "player_color",
-  "color": "black"
-}
-```
+| 页面 | URL |
+|------|-----|
+| 首页 | <http://127.0.0.1:8000/> |
+| 人机对战 | <http://127.0.0.1:8000/game> |
+| 房间对战 | <http://127.0.0.1:8000/room> |
+| 排行榜 | <http://127.0.0.1:8000/rankings> |
+| API 文档 | <http://127.0.0.1:8000/docs> |
 
-```json
-{
-  "type": "opponent_joined"
-}
-```
+## 配置
 
-```json
-{
-  "type": "game_state",
-  "game": {
-    "board": [[...]],
-    "moves": [...],
-    "current_player": 1
-  },
-  "status": "playing"
-}
-```
+通过环境变量覆盖默认值（[config.py](file:///d:/ProjectsPython/GomokuBattle/config.py)）：
 
-```json
-{
-  "type": "move",
-  "row": 7,
-  "col": 7,
-  "player": "black",
-  "game_over": false
-}
-```
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DATABASE_URL` | `sqlite:///./gomoku.db` | SQLAlchemy 连接串 |
+| `SECRET_KEY` | `gomoku-battle-secret-key-change-in-production` | JWT 签名密钥（**生产必须改**） |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `10080`（7 天） | JWT 过期时间 |
 
-```json
-{
-  "type": "undo",
-  "row": 7,
-  "col": 7,
-  "player": "black"
-}
-```
+## API 速查
 
-## 开发说明
+> 统一响应：`{ code: 200, message: "success", data: T }`
+> 鉴权：`Authorization: Bearer <jwt>`（除登录/注册外）
 
-### 数据库初始化
+### 认证 `/api/auth`
 
-数据库会在首次运行时自动创建，包含以下表：
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/register` | — | `{ username, password }` → 201 + 用户信息 |
+| POST | `/login` | — | `{ username, password }` → `{ access_token, token_type, user }` |
+| GET  | `/me` | ✓ | 当前用户信息 |
+| GET  | `/stats` | ✓ | `{ wins, losses, total, win_rate }` |
 
-- users - 用户表
-- game_records - 游戏记录表
-- rooms - 房间表
+### 人机对战 `/api/game`
 
-### 添加新功能
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/ai/start` | ✓ | 返回 `{ game_id, board_size: 15, first_player: "black" }` |
+| POST | `/ai/move` | ✓ | `{ game_id, row, col }` → `{ player_move, ai_move, game_over? }` |
+| POST | `/ai/undo` | ✓ | `{ game_id }` 一次性撤销两子 |
+| GET  | `/history?page=1&page_size=10` | ✓ | 我的对局记录（分页） |
 
-1. 在 `models/` 中定义数据模型
-2. 在 `schemas/` 中定义 Pydantic 模型
-3. 在 `routers/` 中实现路由
-4. 在 `services/` 中实现业务逻辑
-5. 在 `static/` 中添加前端页面和资源
+### 房间 `/api/room`
 
-### 代码规范
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET  | `/list` | — | 等待中的房间 |
+| GET  | `/history` | ✓ | 我参与过的历史房间（最近 50 条） |
+| GET  | `/current` | ✓ | 当前进行中的房间（用于刷新续接） |
+| POST | `/create` | ✓ | 返回 `{ id, room_code, expires_at }` |
+| POST | `/join/{room_code}` | ✓ | 返回 `{ room_id, game_id, player_color, ... }` |
+| GET  | `/info/{room_id}` | ✓ | 房间详情 |
+| WS   | `/ws/{room_id}?token=...` | query | 实时对弈（见下方协议） |
 
-- 遵循 PEP 8 代码规范
-- 使用类型注解
-- 编写清晰的注释
-- 保持函数简洁
+### 排行榜 `/api/rankings`
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET  | `/?limit=20` | — | 前 N 名（按 `-wins, -win_rate` 排序） |
+
+## WebSocket 协议
+
+连接：`/api/room/ws/{room_id}?token=<jwt>`
+
+| 类型 | 方向 | 说明 |
+|------|------|------|
+| `player_color` | S→C | `{ color: "black" \| "white" }` |
+| `game_state` | S→C | `{ game: {board, moves, current_player}, status }` |
+| `opponent_joined` | S→C | `{}` / `{ guest_id }` |
+| `move` | C→S / S→C | `{ row, col, player, game_over?, winning_line? }` |
+| `undo` | C→S | 发起悔棋请求 |
+| `undo_sent` | S→C | `{ timeout_sec }`（通知请求方） |
+| `undo_request` | S→C | `{ from }`（通知对家，30s 倒计时） |
+| `undo_accept` / `undo_decline` | C→S | 同意 / 拒绝 |
+| `undo_declined` | S→C | `{ message }` |
+| `undo_timeout` | S→C | `{ message }`（30s 自动撤回） |
+| `undo` | S→C | `{ row, col, player }`（真正撤销广播） |
+| `room_expired` | S→C | 5 分钟未匹配 |
+| `timeout` | C→S / S→C | 60s 落子超时判负 |
+| `ping` / `pong` | 双向 | 心跳 |
+
+## 业务规则
+
+1. **房间过期** — 创建后 5 分钟内无客人 → 状态 `expired`，推 `room_expired`（启动时 `cleanup_expired_rooms` 任务每 10s 扫描）
+2. **悔棋协议** — 发起方发 `undo` → 30s 内对家 `undo_accept` / `undo_decline`，超时自动拒绝
+3. **落子超时** — 60s 内未落子 → 客户端自动发 `timeout` → 服务端判负
+4. **页面刷新续接** — `/api/room/current` + URL `?code=...` 重新绑定 WebSocket，从 `game_records.moves` 恢复
+5. **断线取消悔棋** — 请求方断线时自动 `clear_pending_undo`
+6. **AI 即时悔棋** — 无对家协议，直接撤销最后两子
+7. **排行榜** — 前端可选 30s 自动刷新
+8. **房间推送** — `join_room` 同步端点用 `push_to_host` 线程安全推送 `opponent_joined` + `game_state`
+
+## 数据库
+
+启动时自动创建 SQLite 表（`database.init_db`）：
+
+- `users` — 用户
+- `rooms` — 房间（带 6 位 `room_code` 唯一索引）
+- `game_records` — 对局记录（`moves` 为 JSON）
 
 ## 常见问题
 
-### Q: 如何修改服务器端口？
+### Q: 切换数据库？
 
-A: 修改 `main.py` 中的 `uvicorn.run(app, host="0.0.0.0", port=8000)` 或使用命令行参数 `--port`。
+修改 `DATABASE_URL` 环境变量，例如 PostgreSQL：
 
-### Q: 如何更换数据库？
+```bash
+export DATABASE_URL="postgresql://user:pass@localhost/gomoku"
+```
 
-A: 修改 `database.py` 中的 `SQLALCHEMY_DATABASE_URL` 配置。
+`database.py` 会自动识别（`sqlite` 才传 `check_same_thread=False`）。
 
-### Q: AI 难度可以调整吗？
+### Q: 调整 JWT 过期？
 
-A: 可以在 `services/game_service.py` 中调整 AI 的评估函数参数。
+```bash
+export ACCESS_TOKEN_EXPIRE_MINUTES=1440   # 24 小时
+```
 
-## 贡献指南
+### Q: AI 难度？
 
-欢迎提交 Issue 和 Pull Request！
+修改 [services/game_service.py](file:///d:/ProjectsPython/GomokuBattle/services/game_service.py) 中的 `evaluate_position` 评分函数权重，或调整 `get_ai_move` 的搜索策略（目前是评分 + 取最大，未做 minimax 搜索）。
+
+### Q: 部署到生产？
+
+1. 设置强 `SECRET_KEY`（**必须**）
+2. 用 PostgreSQL 替代 SQLite
+3. `uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4`（注意：WebSocket 状态在内存，workers > 1 需要 sticky session 或 Redis）
+
+## 开发规范
+
+- 路由放 `routers/`，按业务拆分
+- 模型放 `models/`，Pydantic 放 `schemas/`
+- 业务逻辑放 `services/`
+- 通用工具放 `utils/`
+- 前端 JS 按页面拆分到 `static/js/*.js`
+- 后端响应统一用 `ResponseModel[T]`（`schemas/common.py`）
 
 ## 许可证
 
-MIT License
+MIT
 
 ## 联系方式
 
-如有问题，请提交 Issue 或联系开发者。
-
----
-
-祝您游戏愉快！
+提 Issue 或 PR。
