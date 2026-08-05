@@ -52,7 +52,7 @@ app.add_middleware(
 
 def render(request: Request, template_name: str, **ctx) -> HTMLResponse:
     """统一渲染入口：自动注入 request，方便模板里 {{ request.path }} 等使用"""
-    return templates.TemplateResponse(template_name, {"request": request, **ctx})
+    return templates.TemplateResponse(request, template_name, {"request": request, **ctx})
 
 
 # ── 全局异常兜底：500 时打印完整堆栈到控制台，避免页面静默失败 ──
