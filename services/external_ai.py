@@ -158,6 +158,97 @@ def _run(command: list[str], commands: list[str], timeout: float, cwd: str | Non
         raise AIEngineError("AI 引擎启动或思考失败") from exc
 
 
+class _PersistentGtp:
+    """One serialized KataGo GTP process, keeping the neural model in memory."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen | None = None
+        self._output: Queue[str | None] = Queue()
+        self._command: tuple[str, ...] | None = None
+        self._cwd: str | None = None
+
+    def _stop(self):
+        if self._process and self._process.poll() is None:
+            self._process.kill()
+            self._process.wait(timeout=2)
+        self._process = None
+        self._command = None
+        self._cwd = None
+        self._output = Queue()
+
+    def _start(self, command: list[str], cwd: str | None):
+        process_command = command
+        if os.name != "nt" and Path(command[0]).suffix.lower() == ".exe":
+            launch_dir = cwd or os.getcwd()
+            windows_command = [command[0]]
+            for argument in command[1:]:
+                candidate = Path(argument)
+                windows_command.append(os.path.relpath(candidate, launch_dir) if candidate.is_absolute() and candidate.is_file() else argument)
+            process_command = ["script", "-qfec", shlex.join(windows_command), "/dev/null"]
+        self._process = subprocess.Popen(process_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd=cwd)
+        assert self._process.stdin is not None and self._process.stdout is not None
+        self._command, self._cwd = tuple(command), cwd
+
+        def read_output():
+            assert self._process and self._process.stdout
+            for line in self._process.stdout:
+                self._output.put(line)
+            self._output.put(None)
+
+        threading.Thread(target=read_output, daemon=True).start()
+
+    def request(self, command: list[str], commands: list[str], timeout: float, cwd: str, response: callable) -> str:
+        with self._lock:
+            if self._process is None or self._process.poll() is not None or self._command != tuple(command) or self._cwd != cwd:
+                self._stop()
+                try:
+                    self._start(command, cwd)
+                except (OSError, subprocess.SubprocessError) as exc:
+                    self._stop()
+                    raise AIEngineError("KataGo 引擎启动失败") from exc
+            try:
+                assert self._process and self._process.stdin
+                self._process.stdin.write("\n".join(commands) + "\n")
+                self._process.stdin.flush()
+                output, deadline = [], time.monotonic() + timeout
+                while time.monotonic() < deadline:
+                    try:
+                        line = self._output.get(timeout=max(0.01, deadline - time.monotonic()))
+                    except Empty:
+                        break
+                    if line is None:
+                        raise AIEngineError("KataGo 意外退出")
+                    output.append(line)
+                    if response(line):
+                        return "".join(output)
+                raise AIEngineError("KataGo 思考超时")
+            except (OSError, subprocess.SubprocessError) as exc:
+                self._stop()
+                raise AIEngineError("KataGo 引擎通信失败") from exc
+
+
+_KATAGO_GTP = _PersistentGtp()
+
+
+def warm_go_engine() -> None:
+    """Start loading KataGo in the background; failures remain visible on play."""
+    path = resolve_path("go")
+    config, model = go_resources()
+    if not path or not config or not model:
+        return
+    command = [path, "gtp", "-config", config, "-model", model]
+    if "human" in Path(model).name.lower():
+        command.extend(["-override-config", "humanSLProfile=rank_9d"])
+    try:
+        with _KATAGO_GTP._lock:
+            if _KATAGO_GTP._process is None or _KATAGO_GTP._process.poll() is not None:
+                _KATAGO_GTP._stop()
+                _KATAGO_GTP._start(command, str(Path(path).parent))
+    except (AIEngineError, OSError, subprocess.SubprocessError):
+        _KATAGO_GTP._stop()
+
+
 def _bestmove(output: str) -> str:
     match = re.search(r"^bestmove\s+(\S+)", output, re.MULTILINE)
     if not match or match.group(1) == "(none)":
@@ -219,7 +310,9 @@ def choose_go(state: dict, difficulty: str) -> dict:
     # even when used as the main model. A normal KataGo model does not need this.
     if "human" in Path(model).name.lower():
         command.extend(["-override-config", "humanSLProfile=rank_9d"])
-    output = _run(command, commands, profile["move_time_ms"] / 1000 + 10, response=lambda line: bool(response_pattern.match(line)))
+    # KataGo model initialization is costly. Keep one serialized GTP process
+    # alive so normal moves do not reload the model every turn.
+    output = _KATAGO_GTP.request(command, commands, profile["move_time_ms"] / 1000 + 10, str(Path(path).parent), response=lambda line: bool(response_pattern.match(line)))
     match = re.search(rf"^=\s*{final_id}\s+([^\s]+)", output, re.MULTILINE)
     if not match:
         raise AIEngineError("KataGo 没有返回可用着法")

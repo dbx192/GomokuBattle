@@ -9,6 +9,7 @@ from database import init_db
 from routers import auth, game, room, ranking, games, match_rooms
 from routers.room import manager, notify_room_expired
 from services.state_store import state_store
+from services.external_ai import warm_go_engine
 import asyncio
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI):
     state_store.ping()
     manager.set_main_loop(asyncio.get_running_loop())
     asyncio.create_task(cleanup_expired_rooms())
+    asyncio.create_task(asyncio.to_thread(warm_go_engine))
     yield
 
 

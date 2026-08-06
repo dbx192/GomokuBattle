@@ -1,11 +1,12 @@
 """Clean REST API for standalone multi-game sessions and replays."""
+from copy import deepcopy
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from database import get_db
+from database import SessionLocal, get_db
 from models.game import GameRecord
 from models.user import User
 from schemas.common import ResponseModel
@@ -66,12 +67,40 @@ def _ai_move(game_code: str, engine, state: dict, difficulty: str) -> dict:
         move = choose_external_move(game_code, state, difficulty)
         # External engines propose moves; the server rules engine remains final authority.
         try:
-            engine.apply_move(state, move, state["current_player"])
+            # Some engines (notably GomokuGame) mutate the board they receive.
+            # Validate against an isolated state so the actual move is applied once.
+            engine.apply_move(deepcopy(state), move, state["current_player"])
         except GameRuleError as exc:
             raise AIEngineError(f"{game_code} 引擎返回了非法着法") from exc
         return move
     except AIEngineError as exc:
         raise GameRuleError(str(exc)) from exc
+
+
+def _complete_ai_turn(game_code: str, game_id: int, player_color: str) -> None:
+    """Compute an AI move after the player's state is already visible to them."""
+    db = SessionLocal()
+    try:
+        record = db.get(GameRecord, game_id)
+        if not record or record.status != "in_progress" or record.game_code != game_code:
+            return
+        state = state_store.load_state("session", record.id) or record.game_state
+        if not state or state.get("result") or state.get("phase", "playing") != "playing":
+            return
+        ai_color = state.get("current_player")
+        if ai_color == player_color:
+            return
+        try:
+            engine = get_engine(game_code)
+            move = _ai_move(game_code, engine, state, state.get("ai_difficulty", "normal"))
+            state = engine.apply_move(state, move, ai_color)
+        except GameRuleError as exc:
+            # Preserve the player's move and expose a useful error instead of
+            # reverting the board or leaving the browser waiting indefinitely.
+            state["ai_error"] = str(exc)
+        _persist(db, record, state, player_color)
+    finally:
+        db.close()
 
 
 @router.get("", response_model=ResponseModel[list])
@@ -120,7 +149,7 @@ def create_session(game_code: str, body: StartBody, db: Session = Depends(get_db
 
 
 @router.post("/{game_code}/sessions/move", response_model=ResponseModel[dict])
-def move(game_code: str, body: MoveBody, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def move(game_code: str, body: MoveBody, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     record = _get_record(db, body.game_id, current_user.id)
     if record.game_code != game_code or record.status != "in_progress":
         raise HTTPException(status_code=409, detail="对局已结束或棋种不匹配")
@@ -129,28 +158,35 @@ def move(game_code: str, body: MoveBody, db: Session = Depends(get_db), current_
     player_color = _player_color(game_code)
     try:
         state = engine.apply_move(state, body.move, player_color)
-        if not state.get("result") and state.get("phase", "playing") == "playing":
-            ai_color = state["current_player"]
-            state = engine.apply_move(state, _ai_move(game_code, engine, state, state.get("ai_difficulty", "normal")), ai_color)
     except GameRuleError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     _persist(db, record, state, player_color)
+    if not state.get("result") and state.get("phase", "playing") == "playing":
+        background_tasks.add_task(_complete_ai_turn, game_code, record.id, player_color)
     return ResponseModel(data={"state": state})
 
 
+@router.get("/{game_code}/sessions/{game_id}", response_model=ResponseModel[dict])
+def session_state(game_code: str, game_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    record = _get_record(db, game_id, current_user.id)
+    if record.game_code != game_code:
+        raise HTTPException(status_code=404, detail="对局不存在")
+    return ResponseModel(data={"state": state_store.load_state("session", record.id) or record.game_state})
+
+
 @router.post("/{game_code}/sessions/pass", response_model=ResponseModel[dict])
-def pass_turn(game_code: str, body: GameIdBody, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def pass_turn(game_code: str, body: GameIdBody, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if game_code != "go":
         raise HTTPException(status_code=404, detail="仅围棋支持停一手")
     record = _get_record(db, body.game_id, current_user.id)
     state = state_store.load_state("session", record.id) or record.game_state
     try:
         state = get_engine("go").apply_move(state, {"pass": True}, "black")
-        if state.get("phase") == "playing":
-            state = get_engine("go").apply_move(state, {"pass": True}, "white")
     except GameRuleError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     _persist(db, record, state, "black")
+    if state.get("phase") == "playing" and not state.get("result"):
+        background_tasks.add_task(_complete_ai_turn, "go", record.id, "black")
     return ResponseModel(data={"state": state})
 
 

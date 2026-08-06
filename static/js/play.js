@@ -5,6 +5,7 @@ const ctx = canvas.getContext('2d');
 let sessionId = null, room = null, socket = null, state = null, playerColor = null, selected = null;
 let catalog = {};
 let mode = 'ai';
+let aiPollTimer = null;
 
 const names = {gomoku: '五子棋', go: '围棋', xiangqi: '中国象棋', chess: '国际象棋'};
 
@@ -41,7 +42,7 @@ function start() {
         return;
     }
     API.post(`/api/games/${GAME}/sessions`, {difficulty: $('#difficultySelect').val()}).done(res => {
-        sessionId = res.data.game_id; playerColor = res.data.player_color; state = res.data.state; active();
+        clearAiPolling(); sessionId = res.data.game_id; playerColor = res.data.player_color; state = res.data.state; active(); monitorAiTurn();
     }).fail(showError);
 }
 
@@ -55,12 +56,20 @@ function currentUserId() { try { return JSON.parse(localStorage.getItem('user') 
 function colors() { return GAME === 'xiangqi' ? ['red','black'] : ['black','white']; }
 function active() {
     const isTurn = state && state.current_player === playerColor && !state.result;
-    $('#gameStatus').text(state?.result ? `对局结束 · ${state.result.reason}` : (isTurn ? '轮到你落子' : '等待对手落子'));
+    $('#gameStatus').text(state?.ai_error ? state.ai_error : (state?.result ? `对局结束 · ${state.result.reason}` : (isTurn ? '轮到你落子' : 'AI 正在思考')));
     $('#turnPill').text(state?.result ? '已结束' : (isTurn ? '你的回合' : '对手回合')).toggleClass('is-your-turn', !!isTurn);
     $('#playerSide').text(playerColor || '等待开始');
     $('#resignBtn').prop('disabled', !state || !!state.result);
     $('#passBtn').toggleClass('d-none', GAME !== 'go');
     draw();
+}
+function clearAiPolling() { if (aiPollTimer) { clearTimeout(aiPollTimer); aiPollTimer = null; } }
+function monitorAiTurn() {
+    clearAiPolling();
+    if (room || !sessionId || !state || state.result || state.ai_error || state.current_player === playerColor) return;
+    aiPollTimer = setTimeout(() => API.get(`/api/games/${GAME}/sessions/${sessionId}`).done(res => {
+        state = res.data.state; active(); monitorAiTurn();
+    }).fail(showError), 300);
 }
 function activateRoom() {
     state = room.state; active(); $('#roomInfo').removeClass('d-none').html(`<span>房间码</span><strong>${room.room_code}</strong><small>分享给好友加入</small>`);
@@ -73,9 +82,9 @@ function activateRoom() {
 function sendAction(type, move) {
     if (room) { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({type, move})); return; }
     if (!sessionId) return;
-    if (type === 'move') API.post(`/api/games/${GAME}/sessions/move`, {game_id: sessionId, move}).done(res => { state = res.data.state; active(); }).fail(showError);
-    else if (type === 'pass') API.post(`/api/games/go/sessions/pass`, {game_id: sessionId}).done(res => { state = res.data.state; active(); }).fail(showError);
-    else if (type === 'resign') API.post(`/api/games/${GAME}/sessions/resign`, {game_id: sessionId}).done(res => { state = res.data.state; active(); }).fail(showError);
+    if (type === 'move') API.post(`/api/games/${GAME}/sessions/move`, {game_id: sessionId, move}).done(res => { state = res.data.state; active(); monitorAiTurn(); }).fail(showError);
+    else if (type === 'pass') API.post(`/api/games/go/sessions/pass`, {game_id: sessionId}).done(res => { state = res.data.state; active(); monitorAiTurn(); }).fail(showError);
+    else if (type === 'resign') API.post(`/api/games/${GAME}/sessions/resign`, {game_id: sessionId}).done(res => { clearAiPolling(); state = res.data.state; active(); }).fail(showError);
 }
 
 function showError(xhr) { toastr.error(xhr.responseJSON?.detail || '操作失败'); }

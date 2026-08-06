@@ -1,10 +1,13 @@
 import pytest
 from types import SimpleNamespace
+from fastapi import BackgroundTasks
 
 from services.engines import GameRuleError, GoEngine, GomokuEngine, XiangqiEngine
 from services.game_records import apply_result
-from services.external_ai import choose_go, choose_xiangqi, difficulty_profile
+from services.external_ai import choose_go, choose_xiangqi, difficulty_profile, warm_go_engine
 from services.pikafish import board_to_fen
+import routers.games as games_router
+from routers.games import _ai_move
 
 
 def test_gomoku_win_and_illegal_move():
@@ -96,10 +99,10 @@ def test_katago_reads_only_the_numbered_genmove_response(monkeypatch):
     seen = {}
     monkeypatch.setattr("services.external_ai.resolve_path", lambda code: "/tmp/katago")
     monkeypatch.setattr("services.external_ai.go_resources", lambda: ("/tmp/gtp.cfg", "/tmp/model.bin.gz"))
-    def fake_run(command, commands, timeout, **kwargs):
+    def fake_run(command, commands, timeout, cwd, response):
         seen["commands"] = commands
         return "=1\n\n=2\n\n=3\n\n=4 D4\n\n"
-    monkeypatch.setattr("services.external_ai._run", fake_run)
+    monkeypatch.setattr("services.external_ai._KATAGO_GTP.request", fake_run)
     state = GoEngine().new_state()
     assert choose_go(state, "normal") == {"row": 15, "col": 3}
     assert seen["commands"][-1] == "4 genmove B"
@@ -109,6 +112,34 @@ def test_human_katago_model_receives_required_profile(monkeypatch):
     seen = {}
     monkeypatch.setattr("services.external_ai.resolve_path", lambda code: "/tmp/katago")
     monkeypatch.setattr("services.external_ai.go_resources", lambda: ("/tmp/gtp.cfg", "/tmp/b18c384nbt-humanv0.bin.gz"))
-    monkeypatch.setattr("services.external_ai._run", lambda command, *args, **kwargs: seen.setdefault("command", command) and "=4 D4\n")
+    monkeypatch.setattr("services.external_ai._KATAGO_GTP.request", lambda command, *args, **kwargs: seen.setdefault("command", command) and "=4 D4\n")
     assert choose_go(GoEngine().new_state(), "normal") == {"row": 15, "col": 3}
     assert "humanSLProfile=rank_9d" in seen["command"]
+
+
+def test_gomoku_ai_validation_does_not_apply_the_move_twice(monkeypatch):
+    engine = GomokuEngine()
+    state = engine.apply_move(engine.new_state(), {"row": 7, "col": 7}, "black")
+    monkeypatch.setattr("routers.games.choose_external_move", lambda *args: {"row": 6, "col": 6})
+    move = _ai_move("gomoku", engine, state, "normal")
+    assert move == {"row": 6, "col": 6}
+    assert state["board"][6][6] == 0
+    assert engine.apply_move(state, move, "white")["board"][6][6] == 2
+
+
+def test_warming_go_without_an_engine_is_a_noop(monkeypatch):
+    monkeypatch.setattr("services.external_ai.resolve_path", lambda code: None)
+    monkeypatch.setattr("services.external_ai.go_resources", lambda: (None, None))
+    warm_go_engine()
+
+
+def test_ai_session_returns_player_move_before_ai_thinks(monkeypatch):
+    state = GomokuEngine().new_state() | {"ai_difficulty": "normal"}
+    record = SimpleNamespace(id=999, game_code="gomoku", status="in_progress", player1_id=1, game_state=state)
+    monkeypatch.setattr(games_router, "_get_record", lambda *args: record)
+    monkeypatch.setattr(games_router.state_store, "load_state", lambda *args: None)
+    monkeypatch.setattr(games_router, "_persist", lambda *args: None)
+    tasks = BackgroundTasks()
+    response = games_router.move("gomoku", games_router.MoveBody(game_id=999, move={"row": 7, "col": 7}), tasks, None, SimpleNamespace(id=1))
+    assert response.data["state"]["history"] == [{"row": 7, "col": 7, "player": "black"}]
+    assert len(tasks.tasks) == 1
