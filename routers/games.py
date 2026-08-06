@@ -65,7 +65,10 @@ def _ai_move(game_code: str, engine, state: dict, difficulty: str) -> dict:
     try:
         move = choose_external_move(game_code, state, difficulty)
         # External engines propose moves; the server rules engine remains final authority.
-        engine.apply_move(state, move, state["current_player"])
+        try:
+            engine.apply_move(state, move, state["current_player"])
+        except GameRuleError as exc:
+            raise AIEngineError(f"{game_code} 引擎返回了非法着法") from exc
         return move
     except AIEngineError as exc:
         raise GameRuleError(str(exc)) from exc

@@ -103,3 +103,12 @@ def test_katago_reads_only_the_numbered_genmove_response(monkeypatch):
     state = GoEngine().new_state()
     assert choose_go(state, "normal") == {"row": 15, "col": 3}
     assert seen["commands"][-1] == "4 genmove B"
+
+
+def test_human_katago_model_receives_required_profile(monkeypatch):
+    seen = {}
+    monkeypatch.setattr("services.external_ai.resolve_path", lambda code: "/tmp/katago")
+    monkeypatch.setattr("services.external_ai.go_resources", lambda: ("/tmp/gtp.cfg", "/tmp/b18c384nbt-humanv0.bin.gz"))
+    monkeypatch.setattr("services.external_ai._run", lambda command, *args, **kwargs: seen.setdefault("command", command) and "=4 D4\n")
+    assert choose_go(GoEngine().new_state(), "normal") == {"row": 15, "col": 3}
+    assert "humanSLProfile=rank_9d" in seen["command"]

@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import threading
 import time
+import platform
 from queue import Empty, Queue
 from pathlib import Path
 
@@ -45,11 +47,22 @@ def resolve_path(game_code: str) -> str | None:
     found = next((shutil.which(name) for name in names[game_code] if shutil.which(name)), None)
     if found:
         return found
+    # Windows builds run directly under WSL and include their adjacent DLLs. Prefer
+    # them there because older Linux KataGo builds can depend on unavailable system
+    # OpenSSL/libzip versions.
+    is_wsl = "microsoft" in platform.release().lower()
+    katago_candidates = [
+        PROJECT_ROOT / "engines/katago-v1.15.3-eigen-windows-x64/katago.exe",
+        PROJECT_ROOT / "engines/katago-v1.15.3-eigen-linux-x64/katago",
+    ] if is_wsl else [
+        PROJECT_ROOT / "engines/katago-v1.15.3-eigen-linux-x64/katago",
+        PROJECT_ROOT / "engines/katago-v1.15.3-eigen-windows-x64/katago.exe",
+    ]
     local_candidates = {
         "gomoku": [PROJECT_ROOT / "engines/Rapfi-engine/pbrain-rapfi-linux-clang-avx2", PROJECT_ROOT / "engines/Rapfi-engine/pbrain-rapfi-windows-avx2.exe"],
-        "go": [PROJECT_ROOT / "engines/katago-v1.15.3-eigen-windows-x64/katago.exe"],
+        "go": katago_candidates,
         "xiangqi": [PROJECT_ROOT / "engines/Pikafish.2026-01-02/Linux/pikafish-avx2", PROJECT_ROOT / "engines/Pikafish.2026-01-02/Windows/pikafish-avx2.exe"],
-        "chess": [PROJECT_ROOT / "engines/stockfish-windows-x86-64-avx2/stockfish/stockfish-windows-x86-64-avx2.exe"],
+        "chess": [PROJECT_ROOT / "engines/stockfish-ubuntu-x86-64-avx2/stockfish/stockfish-ubuntu-x86-64-avx2", PROJECT_ROOT / "engines/stockfish-windows-x86-64-avx2/stockfish/stockfish-windows-x86-64-avx2.exe"],
     }
     for candidate in local_candidates[game_code]:
         if candidate.is_file() and (os.name == "nt" or candidate.suffix == ".exe" or os.access(candidate, os.X_OK)):
@@ -60,10 +73,12 @@ def resolve_path(game_code: str) -> str | None:
 def go_resources() -> tuple[str | None, str | None]:
     config = os.getenv("KATAGO_CONFIG")
     model = os.getenv("KATAGO_MODEL")
-    folder = PROJECT_ROOT / "engines/katago-v1.15.3-eigen-windows-x64"
-    config = config or (str(folder / "default_gtp.cfg") if (folder / "default_gtp.cfg").is_file() else None)
+    path = resolve_path("go")
+    folder = Path(path).parent if path else None
+    config_file = folder / "default_gtp.cfg" if folder else None
+    config = config or (str(config_file) if config_file and config_file.is_file() else None)
     if not model:
-        models = list(folder.glob("*.bin.gz"))
+        models = sorted((PROJECT_ROOT / "engines").rglob("*.bin.gz"))
         model = str(models[0]) if models else None
     return config, model
 
@@ -95,7 +110,18 @@ def require_engine(game_code: str) -> None:
 def _run(command: list[str], commands: list[str], timeout: float, cwd: str | None = None, response: callable | None = None) -> str:
     response = response or (lambda line: "bestmove " in line)
     try:
-        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd=cwd)
+        process_command = command
+        # Windows console programs executed from WSL may buffer stdout forever
+        # when connected to a pipe. `script` gives them a pseudo-terminal while
+        # retaining the same stdin/stdout contract for the adapters.
+        if os.name != "nt" and Path(command[0]).suffix.lower() == ".exe":
+            launch_dir = cwd or os.getcwd()
+            windows_command = [command[0]]
+            for argument in command[1:]:
+                candidate = Path(argument)
+                windows_command.append(os.path.relpath(candidate, launch_dir) if candidate.is_absolute() and candidate.is_file() else argument)
+            process_command = ["script", "-qfec", shlex.join(windows_command), "/dev/null"]
+        process = subprocess.Popen(process_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd=cwd)
         assert process.stdin is not None and process.stdout is not None
         process.stdin.write("\n".join(commands) + "\n")
         process.stdin.flush()
@@ -188,7 +214,12 @@ def choose_go(state: dict, difficulty: str) -> dict:
     commands.append(gtp(f"genmove {'B' if state['current_player'] == 'black' else 'W'}"))
     final_id = command_id
     response_pattern = re.compile(rf"^=\s*{final_id}(?:\s|$)")
-    output = _run([path, "gtp", "-config", config, "-model", model], commands, profile["move_time_ms"] / 1000 + 10, response=lambda line: bool(response_pattern.match(line)))
+    command = [path, "gtp", "-config", config, "-model", model]
+    # The b18c human SL model distributed with KataGo requires profile metadata
+    # even when used as the main model. A normal KataGo model does not need this.
+    if "human" in Path(model).name.lower():
+        command.extend(["-override-config", "humanSLProfile=rank_9d"])
+    output = _run(command, commands, profile["move_time_ms"] / 1000 + 10, response=lambda line: bool(response_pattern.match(line)))
     match = re.search(rf"^=\s*{final_id}\s+([^\s]+)", output, re.MULTILINE)
     if not match:
         raise AIEngineError("KataGo 没有返回可用着法")
@@ -217,7 +248,10 @@ def choose_gomoku(state: dict, difficulty: str) -> dict:
     match = re.search(r"^(\d+)\s*,\s*(\d+)\s*$", output, re.MULTILINE)
     if not match:
         raise AIEngineError("Rapfi 没有返回可用着法")
-    return {"row": int(match.group(2)), "col": int(match.group(1))}
+    row, col = int(match.group(2)), int(match.group(1))
+    if not (0 <= row < 15 and 0 <= col < 15) or state["board"][row][col] != 0:
+        raise AIEngineError("Rapfi 返回了非法着法")
+    return {"row": row, "col": col}
 
 
 def choose_move(game_code: str, state: dict, difficulty: str) -> dict:
