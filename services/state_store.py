@@ -10,7 +10,6 @@ from config import (
     LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_SECONDS,
 )
-from services.game_service import GomokuGame
 
 
 class RedisStateStore:
@@ -62,23 +61,32 @@ class RedisStateStore:
     def _login_limit_key(self, identifier: str) -> str:
         return f"gomoku:auth:login_limit:{identifier}"
 
-    def save_game(self, namespace: str, entity_id: int, game: GomokuGame, ttl_seconds: int):
-        payload = json.dumps(game.to_dict(), ensure_ascii=False)
+    def save_state(self, namespace: str, entity_id: int, state: dict, ttl_seconds: int):
+        payload = json.dumps(state, ensure_ascii=False)
         if not self.enabled or self.client is None:
             self._local_set(self._game_key(namespace, entity_id), payload, ttl_seconds)
             return
         self.client.setex(self._game_key(namespace, entity_id), ttl_seconds, payload)
 
-    def load_game(self, namespace: str, entity_id: int) -> Optional[GomokuGame]:
+    def load_state(self, namespace: str, entity_id: int) -> Optional[dict]:
         if not self.enabled or self.client is None:
             payload = self._local_get(self._game_key(namespace, entity_id))
             if not payload:
                 return None
-            return GomokuGame.from_dict(json.loads(payload))
+            return json.loads(payload)
         payload = self.client.get(self._game_key(namespace, entity_id))
         if not payload:
             return None
-        return GomokuGame.from_dict(json.loads(payload))
+        return json.loads(payload)
+
+    # Compatibility wrappers used by the original Gomoku routes.
+    def save_game(self, namespace: str, entity_id: int, game, ttl_seconds: int):
+        self.save_state(namespace, entity_id, game.to_dict(), ttl_seconds)
+
+    def load_game(self, namespace: str, entity_id: int):
+        from services.game_service import GomokuGame
+        state = self.load_state(namespace, entity_id)
+        return GomokuGame.from_dict(state) if state else None
 
     def delete_game(self, namespace: str, entity_id: int):
         if not self.enabled or self.client is None:

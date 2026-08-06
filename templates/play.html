@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="play-page" id="playApp" data-game-code="{{ game_code }}">
+    <header class="play-header">
+        <div>
+            <a href="/" class="back-link"><i class="bi bi-arrow-left"></i> 棋种大厅</a>
+            <div class="game-heading"><span class="game-heading-mark" id="gameMark"></span><h1 id="gameTitle">加载中...</h1></div>
+        </div>
+        <div class="play-actions">
+            <div class="mode-switch" role="group"><button class="mode-choice is-active" data-mode="ai"><i class="bi bi-cpu"></i> 人机</button><button class="mode-choice" data-mode="room"><i class="bi bi-people"></i> 房间</button></div>
+            <button id="startBtn" class="btn btn-primary"><i class="bi bi-play-fill"></i> 开始对局</button>
+        </div>
+    </header>
+    <main class="play-layout">
+        <aside class="play-sidebar">
+            <div class="player-strip"><span class="player-dot player-dot-you"></span><div><small>你</small><strong id="playerSide">等待开始</strong></div><span class="turn-pill" id="turnPill">未开始</span></div>
+            <div class="player-strip opponent"><span class="player-dot player-dot-ai"></span><div><small id="opponentLabel">对手</small><strong id="opponentSide">AI</strong></div></div>
+            <div class="status-block"><span class="status-kicker">对局状态</span><strong id="gameStatus">请选择模式并开始</strong><span id="clock" class="clock-display">--:--</span></div>
+            <div id="roomInfo" class="room-info d-none"></div>
+            <div id="roomControls" class="room-join d-none"><label>加入好友房间</label><div class="join-line"><input id="roomCodeInput" maxlength="6" class="form-control text-uppercase" placeholder="输入 6 位房间码"><button id="joinBtn" class="icon-button" title="加入房间"><i class="bi bi-arrow-right"></i></button></div></div>
+            <div class="sidebar-actions"><button id="passBtn" class="btn btn-subtle d-none"><i class="bi bi-skip-forward"></i> 停一手</button><button id="resignBtn" class="btn btn-danger-subtle" disabled><i class="bi bi-flag"></i> 认输</button></div>
+            <p class="rules-note"><i class="bi bi-shield-check"></i> 服务端规则校验<br><i class="bi bi-wifi"></i> 实时状态自动同步</p>
+        </aside>
+        <section class="board-column"><div class="board-frame"><div class="board-caption"><span id="boardLabel">棋盘</span><span class="live-indicator"><i></i> LIVE</span></div><canvas id="boardCanvas" width="720" height="720" class="game-board-canvas"></canvas></div><p id="moveHint" class="move-hint">点击棋盘落子</p></section>
+    </main>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/play.js"></script>{% endblock %}

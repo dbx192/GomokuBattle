@@ -42,6 +42,35 @@ def get_db() -> Session:
 
 
 def init_db():
-    from models import user, game, room
+    from models import user, game, room, game_stats
 
     Base.metadata.create_all(bind=engine)
+    _migrate_legacy_schema()
+
+
+def _migrate_legacy_schema():
+    """Small, idempotent migration for installations created before multi-game support."""
+    from sqlalchemy import inspect, text
+
+    additions = {
+        "game_records": {
+            "game_code": "VARCHAR(20) NOT NULL DEFAULT 'gomoku'",
+            "rules_version": "VARCHAR(20) NOT NULL DEFAULT 'v1'",
+            "initial_state": "JSON",
+            "game_state": "JSON",
+            "result_reason": "VARCHAR(40)",
+            "time_control": "JSON",
+            "clocks": "JSON",
+        },
+        "rooms": {
+            "game_code": "VARCHAR(20) NOT NULL DEFAULT 'gomoku'",
+            "time_control": "JSON",
+        },
+    }
+    inspector = inspect(engine)
+    with engine.begin() as connection:
+        for table, columns in additions.items():
+            existing = {column["name"] for column in inspector.get_columns(table)}
+            for name, sql_type in columns.items():
+                if name not in existing:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))

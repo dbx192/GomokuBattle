@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -12,6 +12,8 @@ class Room(Base):
     guest_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     status = Column(String(20), default="waiting")
     game_record_id = Column(Integer, ForeignKey("game_records.id"), nullable=True)
+    game_code = Column(String(20), default="gomoku", nullable=False, index=True)
+    time_control = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     host = relationship("User", foreign_keys=[host_id])

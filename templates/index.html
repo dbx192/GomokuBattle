@@ -9,13 +9,13 @@
     <section class="hero-section">
         <div class="container">
             <h1 class="hero-title">
-                <span class="text-gradient">Gomoku</span>Battle
+                <span class="text-gradient">棋域</span>对战
             </h1>
-            <p class="hero-subtitle">五子连珠 · 以棋会友 · 零广告纯净对弈体验</p>
+            <p class="hero-subtitle">围棋 · 中国象棋 · 国际象棋 · 五子棋</p>
         </div>
     </section>
 
-    <div class="container">
+    <div class="container" id="rooms">
         <div class="row g-4">
 
             {# ── 左侧：用户面板（未登录时是登录卡） ── #}
@@ -49,11 +49,11 @@
                                 <i class="bi bi-lightning-charge"></i> 快速操作
                             </div>
                             <div class="card-body">
-                                <a href="/game" class="btn btn-primary w-100 mb-2">
-                                    <i class="bi bi-cpu"></i> 人机对战
+                                <a href="/play/go" class="btn btn-primary w-100 mb-2">
+                                    <i class="bi bi-controller"></i> 开始对弈
                                 </a>
-                                <a href="/room" class="btn btn-outline-light w-100">
-                                    <i class="bi bi-people"></i> 房间对战
+                                <a href="/play/chess" class="btn btn-outline-light w-100">
+                                    <i class="bi bi-people"></i> 好友房间
                                 </a>
                             </div>
                         </div>
@@ -75,26 +75,18 @@
             {# ── 右侧：模式卡 + 特性 ── #}
             <div class="col-lg-9">
                 <div class="row g-4 mb-4">
-                    <div class="col-md-6">
-                        <a href="/game" class="text-decoration-none">
+                    {% for code, icon, title, text in [('gomoku','bi-grid-3x3','五子棋','连珠致胜，快速开局'), ('go','bi-circle','围棋','19 路中国规则，数子决胜'), ('xiangqi','bi-diagram-3','中国象棋','楚河汉界，运筹帷幄'), ('chess','bi-grid','国际象棋','完整 FIDE 规则对弈')] %}
+                    <div class="col-md-6 col-xl-3">
+                        <a href="/play/{{ code }}" class="text-decoration-none">
                             <div class="game-mode-card">
-                                <i class="bi bi-cpu" style="font-size: 2.5rem;"></i>
-                                <h5 class="card-title mt-2">人机对战</h5>
-                                <p class="card-text mb-0">与 AI 对弈，磨炼棋艺</p>
-                                <small class="text-muted">支持悔棋 · 多难度 · 不限时</small>
+                                <i class="bi {{ icon }}" style="font-size: 2.5rem;"></i>
+                                <h5 class="card-title mt-2">{{ title }}</h5>
+                                <p class="card-text mb-0">{{ text }}</p>
+                                <small class="text-muted">人机 · 房间 · 复盘</small>
                             </div>
                         </a>
                     </div>
-                    <div class="col-md-6">
-                        <a href="/room" class="text-decoration-none">
-                            <div class="game-mode-card">
-                                <i class="bi bi-people" style="font-size: 2.5rem;"></i>
-                                <h5 class="card-title mt-2">房间对战</h5>
-                                <p class="card-text mb-0">创建或加入房间，好友对战</p>
-                                <small class="text-muted">6位房间码 · 实时对战 · 观战</small>
-                            </div>
-                        </a>
-                    </div>
+                    {% endfor %}
                 </div>
 
                 <div class="row g-3 mb-4">

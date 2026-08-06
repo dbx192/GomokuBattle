@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
-from routers import auth, game, room, ranking
+from routers import auth, game, room, ranking, games, match_rooms
 from routers.room import manager, notify_room_expired
 from services.state_store import state_store
 import asyncio
@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="GomokuBattle", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="棋域对战", version="2.0.0", lifespan=lifespan)
 
 # ── 注册常见静态资源 MIME（避免 woff2/woff 字体被当 text/plain 发送，浏览器会拒收） ──
 mimetypes.add_type("font/woff2", ".woff2")
@@ -75,6 +75,13 @@ async def game_page(request: Request):
     return render(request, "game.html", active="game", title="人机对战 — GomokuBattle")
 
 
+@app.get("/play/{game_code}", response_class=HTMLResponse)
+async def play_page(request: Request, game_code: str):
+    if game_code not in {"gomoku", "go", "xiangqi", "chess"}:
+        return JSONResponse(status_code=404, content={"detail": "不支持的棋种"})
+    return render(request, "play.html", active="play", game_code=game_code, title="棋域对战")
+
+
 @app.get("/room", response_class=HTMLResponse)
 async def room_page(request: Request):
     return render(request, "room.html", active="room", title="房间对战 — GomokuBattle")
@@ -89,6 +96,8 @@ app.include_router(auth.router)
 app.include_router(game.router)
 app.include_router(room.router)
 app.include_router(ranking.router)
+app.include_router(games.router)
+app.include_router(match_rooms.router)
 
 
 async def cleanup_expired_rooms():

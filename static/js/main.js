@@ -112,7 +112,7 @@ function handlePostLogin() {
         return;
     }
     const path = location.pathname;
-    if (path.startsWith('/game') || path.startsWith('/room')) {
+    if (path.startsWith('/game') || path.startsWith('/room') || path.startsWith('/play')) {
         location.reload();
     }
 }
@@ -126,7 +126,7 @@ $(function() {
     };
 
     // ── 全局拦截：未登录时点击 /game 或 /room 的链接 → 弹登录框，不跳转 ──
-    const PROTECTED_PREFIXES = ['/game', '/room'];
+    const PROTECTED_PREFIXES = ['/game', '/room', '/play'];
     function isProtectedPath(href) {
         if (!href) return false;
         return PROTECTED_PREFIXES.some(p =>
