@@ -6,13 +6,14 @@
             <a href="/" class="back-link"><i class="bi bi-arrow-left"></i> 棋种大厅</a>
             <div class="game-heading"><span class="game-heading-mark" id="gameMark"></span><h1 id="gameTitle">加载中...</h1></div>
         </div>
-        <div class="play-actions">
-            <div class="mode-switch" role="group"><button class="mode-choice is-active" data-mode="ai"><i class="bi bi-cpu"></i> 人机</button><button class="mode-choice" data-mode="room"><i class="bi bi-people"></i> 房间</button></div>
-            <button id="startBtn" class="btn btn-primary"><i class="bi bi-play-fill"></i> 开始对局</button>
-        </div>
     </header>
     <main class="play-layout">
         <aside class="play-sidebar">
+            <div class="play-actions">
+                <div class="mode-switch" role="group"><button class="mode-choice is-active" data-mode="ai"><i class="bi bi-cpu"></i> 人机</button><button class="mode-choice" data-mode="room"><i class="bi bi-people"></i> 房间</button></div>
+                <label class="ai-difficulty" id="difficultyControl"><span>AI 难度</span><select id="difficultySelect" class="form-select form-select-sm"><option value="easy">简单</option><option value="normal" selected>普通</option><option value="hard">困难</option></select></label>
+                <button id="startBtn" class="btn btn-primary"><i class="bi bi-play-fill"></i> 开始对局</button>
+            </div>
             <div class="player-strip"><span class="player-dot player-dot-you"></span><div><small>你</small><strong id="playerSide">等待开始</strong></div><span class="turn-pill" id="turnPill">未开始</span></div>
             <div class="player-strip opponent"><span class="player-dot player-dot-ai"></span><div><small id="opponentLabel">对手</small><strong id="opponentSide">AI</strong></div></div>
             <div class="status-block"><span class="status-kicker">对局状态</span><strong id="gameStatus">请选择模式并开始</strong><span id="clock" class="clock-display">--:--</span></div>
@@ -25,4 +26,4 @@
     </main>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/play.js"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/play.js?v=20260808"></script>{% endblock %}

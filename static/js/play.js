@@ -8,12 +8,13 @@ let mode = 'ai';
 
 const names = {gomoku: '五子棋', go: '围棋', xiangqi: '中国象棋', chess: '国际象棋'};
 
-$(async function () {
+$(function () {
     document.getElementById('gameTitle').textContent = names[GAME];
     document.getElementById('gameMark').textContent = {gomoku: '五', go: '围', xiangqi: '象', chess: '♞'}[GAME];
     document.getElementById('boardLabel').textContent = names[GAME];
-    const response = await API.get('/api/games');
-    catalog = Object.fromEntries(response.data.map(item => [item.code, item]));
+    API.get('/api/games')
+        .done(response => { catalog = Object.fromEntries(response.data.map(item => [item.code, item])); })
+        .fail(() => { catalog = {}; toastr.warning('棋种目录暂时不可用，仍可开始对局'); });
     $('#startBtn').on('click', start);
     $('#joinBtn').on('click', join);
     $('#passBtn').on('click', () => sendAction('pass'));
@@ -26,6 +27,7 @@ $(async function () {
 function updateMode() {
     const roomMode = mode === 'room';
     $('#roomControls').toggleClass('d-none', !roomMode);
+    $('#difficultyControl').toggleClass('d-none', roomMode);
     $('#startBtn').html(roomMode ? '<i class="bi bi-plus-lg"></i> 创建房间' : '<i class="bi bi-play-fill"></i> 开始对局');
 }
 
@@ -38,7 +40,7 @@ function start() {
         API.post('/api/match-rooms', {game_code: GAME}).done(res => { room = res.data; playerColor = colors()[0]; activateRoom(); }).fail(showError);
         return;
     }
-    API.post(`/api/games/${GAME}/sessions`, {}).done(res => {
+    API.post(`/api/games/${GAME}/sessions`, {difficulty: $('#difficultySelect').val()}).done(res => {
         sessionId = res.data.game_id; playerColor = res.data.player_color; state = res.data.state; active();
     }).fail(showError);
 }
@@ -81,7 +83,19 @@ function clickBoard(event) {
     if (!state || state.result || state.current_player !== playerColor) return;
     const rect = canvas.getBoundingClientRect(), x = (event.clientX - rect.left) * canvas.width / rect.width, y = (event.clientY - rect.top) * canvas.height / rect.height;
     if (GAME === 'gomoku' || GAME === 'go') { const n = GAME === 'go' ? 19 : 15, p = 42, cell = (canvas.width - p * 2) / (n - 1); const row = Math.round((y-p)/cell), col = Math.round((x-p)/cell); if (row>=0&&row<n&&col>=0&&col<n) sendAction('move',{row,col}); return; }
-    if (GAME === 'xiangqi') { const p=48, cellX=(canvas.width-p*2)/8, cellY=(canvas.height-p*2)/9, row=Math.round((y-p)/cellY), col=Math.round((x-p)/cellX); if(row<0||row>9||col<0||col>8)return; if (!selected) { selected={row,col}; draw(); } else { sendAction('move',{from_row:selected.row,from_col:selected.col,to_row:row,to_col:col}); selected=null; } return; }
+    if (GAME === 'xiangqi') {
+        const p=48, cellX=(canvas.width-p*2)/8, cellY=(canvas.height-p*2)/9, row=Math.round((y-p)/cellY), col=Math.round((x-p)/cellX);
+        if(row<0||row>9||col<0||col>8)return;
+        const piece = state.board[row][col];
+        const isOwnPiece = piece !== '0' && (playerColor === 'red' ? piece === piece.toUpperCase() : piece === piece.toLowerCase());
+        if (!selected) {
+            if (!isOwnPiece) { toastr.info('请先选择自己的棋子'); return; }
+            selected={row,col}; draw(); return;
+        }
+        if (isOwnPiece) { selected={row,col}; draw(); return; }
+        sendAction('move',{from_row:selected.row,from_col:selected.col,to_row:row,to_col:col}); selected=null;
+        return;
+    }
     const p=40, cell=(canvas.width-p*2)/8, row=Math.floor((y-p)/cell), col=Math.floor((x-p)/cell); if(row<0||row>7||col<0||col>7)return; const square=String.fromCharCode(97+col)+(8-row); if(!selected){selected=square;draw();}else{let uci=selected+square; const piece=state.board[selected]; if(piece?.toLowerCase()==='p'&&(square.endsWith('8')||square.endsWith('1'))) uci+=prompt('升变棋子：q/r/b/n','q')||'q'; sendAction('move',{uci});selected=null;} 
 }
 

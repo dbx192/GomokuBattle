@@ -18,11 +18,11 @@ def apply_result(db, record, state: dict, players: dict[str, int | None]):
             continue
         stats = db.query(UserGameStats).filter_by(user_id=user_id, game_code=record.game_code).first()
         if not stats:
-            stats = UserGameStats(user_id=user_id, game_code=record.game_code)
+            stats = UserGameStats(user_id=user_id, game_code=record.game_code, wins=0, losses=0, draws=0)
             db.add(stats)
         if winner_color is None:
-            stats.draws += 1
+            stats.draws = (stats.draws or 0) + 1
         elif color == winner_color:
-            stats.wins += 1
+            stats.wins = (stats.wins or 0) + 1
         else:
-            stats.losses += 1
+            stats.losses = (stats.losses or 0) + 1

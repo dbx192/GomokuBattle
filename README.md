@@ -151,6 +151,37 @@ python seed_users.py
 | `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `300` | 登录失败限流窗口（秒） |
 | `SECRET_KEY` | `gomoku-battle-secret-key-change-in-production` | JWT 签名密钥（**生产必须改**） |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `10080`（7 天） | JWT 过期时间 |
+| `STOCKFISH_PATH` | 未设置 | Stockfish 可执行文件路径 |
+| `PIKAFISH_PATH` | 未设置 | Pikafish 可执行文件路径 |
+| `RAPFI_PATH` | 未设置 | Rapfi 可执行文件路径（同目录须保留配置和权重） |
+| `KATAGO_PATH` | 未设置 | KataGo 可执行文件路径 |
+| `KATAGO_CONFIG` | 未设置 | KataGo GTP 配置文件路径 |
+| `KATAGO_MODEL` | 未设置 | KataGo 神经网络模型路径 |
+
+### AI 引擎部署
+
+AI 使用官方成熟引擎，不包含在代码仓库中：Stockfish（国际象棋，约 114 MB 压缩包）、Pikafish（中国象棋，约 55 MB）、Rapfi（五子棋，约 37 MB）及 KataGo 与其模型（围棋，模型通常数十到数百 MB）。下载与操作系统匹配的发布包，解压到被 `.gitignore` 排除的 `engines/` 目录。Rapfi 必须保留可执行文件同目录的配置和权重文件。
+
+```bash
+# Windows PowerShell 示例
+$env:STOCKFISH_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\stockfish\\stockfish.exe'
+$env:PIKAFISH_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\pikafish\\pikafish.exe'
+$env:RAPFI_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\rapfi\\pbrain-rapfi.exe'
+$env:KATAGO_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\katago\\katago.exe'
+$env:KATAGO_CONFIG = 'D:\\ProjectsPython\\GomokuBattle\\engines\\katago\\gtp_example.cfg'
+$env:KATAGO_MODEL = 'D:\\ProjectsPython\\GomokuBattle\\engines\\katago\\model.bin.gz'
+
+# Linux / WSL 示例
+export STOCKFISH_PATH="$PWD/engines/stockfish/stockfish"
+export PIKAFISH_PATH="$PWD/engines/pikafish/pikafish"
+export RAPFI_PATH="$PWD/engines/rapfi/pbrain-rapfi"
+export KATAGO_PATH="$PWD/engines/katago/katago"
+export KATAGO_CONFIG="$PWD/engines/katago/gtp_example.cfg"
+export KATAGO_MODEL="$PWD/engines/katago/model.bin.gz"
+chmod +x "$STOCKFISH_PATH" "$PIKAFISH_PATH" "$RAPFI_PATH" "$KATAGO_PATH"
+```
+
+开局时可选择简单、普通、困难，对应每步约 250ms、1s、3s 的引擎思考预算。未部署的引擎会阻止创建人机对局并明确提示缺少的配置，不会回退到自写 AI。
 
 ## API 速查
 

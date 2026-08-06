@@ -9,9 +9,9 @@ from database import get_db
 from models.game import GameRecord
 from models.user import User
 from schemas.common import ResponseModel
-from services.engines import GAME_CATALOG, GameRuleError, GoEngine, GomokuEngine, XiangqiEngine, get_engine
+from services.engines import GAME_CATALOG, GameRuleError, get_engine
 from services.game_records import apply_result
-from services.ai_adapters import engine_status
+from services.external_ai import AIEngineError, DIFFICULTIES, choose_move as choose_external_move, engine_status, require_engine
 from services.state_store import state_store
 from utils.auth import get_current_user
 
@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/games", tags=["游戏"])
 
 class StartBody(BaseModel):
     player_color: str | None = None
+    difficulty: str = "normal"
 
 
 class MoveBody(BaseModel):
@@ -60,57 +61,39 @@ def _persist(db: Session, record: GameRecord, state: dict, player_color: str):
     state_store.save_state("session", record.id, state, state_store.AI_TTL_SECONDS)
 
 
-def _basic_ai_move(engine, state: dict, color: str) -> dict:
-    """Deterministic legal fallback; external engine integration can replace this adapter."""
-    if isinstance(engine, GomokuEngine):
-        from services.game_service import GomokuGame
-        game_state = dict(state)
-        game_state["current_player"] = GomokuGame.BLACK if state["current_player"] == "black" else GomokuGame.WHITE
-        game = GomokuGame.from_dict(game_state)
-        row, col = game.get_ai_move()
-        return {"row": row, "col": col}
-    if isinstance(engine, GoEngine):
-        for row, values in enumerate(state["board"]):
-            for col, value in enumerate(values):
-                if value:
-                    continue
-                move = {"row": row, "col": col}
-                try:
-                    engine.apply_move(state, move, color)
-                    return move
-                except GameRuleError:
-                    continue
-        return {"pass": True}
-    if isinstance(engine, XiangqiEngine):
-        moves = engine._legal(state["board"], color)
-        if moves:
-            fr, fc, tr, tc = moves[0]
-            return {"from_row": fr, "from_col": fc, "to_row": tr, "to_col": tc}
-    if hasattr(engine, "_chess"):
-        chess = engine._chess()
-        board = chess.Board(state["fen"])
-        move = next(iter(board.legal_moves), None)
-        if move:
-            return {"uci": move.uci()}
-    raise GameRuleError("AI 没有可用着法")
+def _ai_move(game_code: str, engine, state: dict, difficulty: str) -> dict:
+    try:
+        move = choose_external_move(game_code, state, difficulty)
+        # External engines propose moves; the server rules engine remains final authority.
+        engine.apply_move(state, move, state["current_player"])
+        return move
+    except AIEngineError as exc:
+        raise GameRuleError(str(exc)) from exc
 
 
 @router.get("", response_model=ResponseModel[list])
 def catalog():
     statuses = engine_status()
-    return ResponseModel(data=[{"code": code, **item, "ai_engine": statuses.get(code, {"configured": False})} for code, item in GAME_CATALOG.items()])
+    return ResponseModel(data=[{"code": code, **item, "ai_engine": statuses.get(code, {"configured": False}), "difficulties": DIFFICULTIES} for code, item in GAME_CATALOG.items()])
 
 
 @router.post("/{game_code}/sessions", response_model=ResponseModel[dict])
 def create_session(game_code: str, body: StartBody, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if game_code not in GAME_CATALOG:
         raise HTTPException(status_code=404, detail="不支持的棋种")
+    if body.difficulty not in DIFFICULTIES:
+        raise HTTPException(status_code=400, detail="不支持的 AI 难度")
+    try:
+        require_engine(game_code)
+    except AIEngineError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
         engine = get_engine(game_code)
         state = engine.new_state()
     except GameRuleError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     player_color = body.player_color or _player_color(game_code)
+    state["ai_difficulty"] = body.difficulty
     if player_color not in COLORS[game_code]:
         raise HTTPException(status_code=400, detail="该棋种不支持此执子方")
     record = GameRecord(
@@ -128,7 +111,7 @@ def create_session(game_code: str, body: StartBody, db: Session = Depends(get_db
     db.refresh(record)
     state_store.save_state("session", record.id, state, state_store.AI_TTL_SECONDS)
     if state["current_player"] != player_color:
-        state = engine.apply_move(state, _basic_ai_move(engine, state, state["current_player"]), state["current_player"])
+        state = engine.apply_move(state, _ai_move(game_code, engine, state, body.difficulty), state["current_player"])
         _persist(db, record, state, player_color)
     return ResponseModel(data={"game_id": record.id, "player_color": player_color, "state": state, "rules": GAME_CATALOG[game_code]})
 
@@ -145,7 +128,7 @@ def move(game_code: str, body: MoveBody, db: Session = Depends(get_db), current_
         state = engine.apply_move(state, body.move, player_color)
         if not state.get("result") and state.get("phase", "playing") == "playing":
             ai_color = state["current_player"]
-            state = engine.apply_move(state, _basic_ai_move(engine, state, ai_color), ai_color)
+            state = engine.apply_move(state, _ai_move(game_code, engine, state, state.get("ai_difficulty", "normal")), ai_color)
     except GameRuleError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     _persist(db, record, state, player_color)

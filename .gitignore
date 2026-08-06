@@ -53,3 +53,6 @@ logs/
 # Uvicorn
 *.pid
 *.pid.lock
+
+# Downloaded native AI engines and KataGo neural-network models
+engines/

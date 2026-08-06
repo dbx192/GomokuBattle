@@ -263,7 +263,10 @@ class XiangqiEngine(GameEngine):
                             if self._color(target)!=color: moves.append((nr,nc))
                             break
                     else:
-                        if target != "0":
+                        if target == "0":
+                            if seen == 0:
+                                moves.append((nr, nc))
+                        else:
                             seen += 1
                             if seen == 2:
                                 if self._color(target)!=color: moves.append((nr,nc))
