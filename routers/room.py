@@ -18,6 +18,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 router = APIRouter(prefix="/api/room", tags=["房间"])
+PLAYING_ROOM_MAX_AGE = timedelta(hours=1)
 
 
 class RoomConnectionManager:
@@ -26,6 +27,7 @@ class RoomConnectionManager:
     def __init__(self):
         self.host_conns: Dict[int, WebSocket] = {}
         self.guest_conns: Dict[int, WebSocket] = {}
+        self.observer_conns: Dict[int, set[WebSocket]] = {}
         self.main_loop = None  # 启动时由 set_main_loop 注入
         # 单次悔棋请求的有效秒数
         self.UNDO_REQUEST_TIMEOUT = 30
@@ -51,6 +53,8 @@ class RoomConnectionManager:
             elif room.guest_id == user_id:
                 self.guest_conns[room_id] = ws
                 role = "guest"
+            elif room.status == "playing":
+                self.observer_conns.setdefault(room_id, set()).add(ws)
             return role
         finally:
             db.close()
@@ -60,6 +64,11 @@ class RoomConnectionManager:
             del self.host_conns[room_id]
         if self.guest_conns.get(room_id) is ws:
             del self.guest_conns[room_id]
+        observers = self.observer_conns.get(room_id)
+        if observers:
+            observers.discard(ws)
+            if not observers:
+                del self.observer_conns[room_id]
 
     def both_connected(self, room_id: int) -> bool:
         return room_id in self.host_conns and room_id in self.guest_conns
@@ -76,6 +85,7 @@ class RoomConnectionManager:
             conns.append(self.host_conns[room_id])
         if self.guest_conns.get(room_id):
             conns.append(self.guest_conns[room_id])
+        conns.extend(self.observer_conns.get(room_id, set()))
         return conns
 
     def drop_game(self, room_id: int):
@@ -176,6 +186,19 @@ def get_room_list(db: Session = Depends(get_db)):
     )
     room_list = [_serialize_room(r) for r in rooms]
     return ResponseModel(data=room_list)
+
+
+@router.get("/playing", response_model=ResponseModel[List[dict]])
+def get_playing_room_list(db: Session = Depends(get_db)):
+    """公开展示可围观的进行中房间；进入围观仍要求登录。"""
+    playing_threshold = datetime.now(timezone.utc).replace(tzinfo=None) - PLAYING_ROOM_MAX_AGE
+    rooms = (
+        db.query(Room)
+        .filter(Room.status == "playing", Room.created_at >= playing_threshold)
+        .order_by(Room.created_at.desc())
+        .all()
+    )
+    return ResponseModel(data=[_serialize_room(r) for r in rooms])
 
 
 @router.get("/history", response_model=ResponseModel[List[dict]])
@@ -354,6 +377,33 @@ def join_room(
     )
 
 
+@router.get("/watch/{room_code}", response_model=ResponseModel[dict])
+def watch_room(
+    room_code: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """返回正在进行房间的只读围观会话信息。"""
+    room = db.query(Room).filter(Room.room_code == room_code.upper()).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    playing_threshold = datetime.now(timezone.utc).replace(tzinfo=None) - PLAYING_ROOM_MAX_AGE
+    if room.status != "playing" or room.created_at < playing_threshold:
+        raise HTTPException(status_code=409, detail="该房间当前无法围观")
+    if current_user.id in {room.host_id, room.guest_id}:
+        raise HTTPException(status_code=409, detail="参赛者请从自己的房间会话进入")
+
+    return ResponseModel(
+        message="已进入观战",
+        data={
+            "room_id": room.id,
+            "room_code": room.room_code,
+            "status": room.status,
+            "role": "observer",
+        },
+    )
+
+
 @router.get("/info/{room_id}", response_model=ResponseModel[dict])
 def get_room_info(
     room_id: int,
@@ -369,7 +419,9 @@ def get_room_info(
             "id": room.id,
             "room_code": room.room_code,
             "host_id": room.host_id,
+            "host_name": room.host.username if room.host else None,
             "guest_id": room.guest_id,
+            "guest_name": room.guest.username if room.guest else None,
             "status": room.status,
             "is_host": room.host_id == current_user.id,
             "created_at": room.created_at.isoformat() if room.created_at else None,
@@ -396,9 +448,18 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
             await websocket.close(code=4010)
             return
 
-        if room.host_id != user_id and room.guest_id != user_id:
-            await websocket.close(code=4003)
+        if (
+            room.status == "playing"
+            and room.created_at
+            < datetime.now(timezone.utc).replace(tzinfo=None) - PLAYING_ROOM_MAX_AGE
+        ):
+            await websocket.close(code=4010)
             return
+
+        if room.host_id != user_id and room.guest_id != user_id:
+            if room.status != "playing":
+                await websocket.close(code=4003)
+                return
 
         await websocket.accept()
         role = manager.attach(room_id, user_id, websocket)
@@ -418,11 +479,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                         game.add_move(move[0], move[1], move[2])
                 save_room_game(room_id, game)
 
-        # 发送身份与初始状态
-        if room.host_id == user_id:
+        # 发送身份与初始状态。围观者只收到 role，不会获得落子颜色。
+        if role == "host":
             await websocket.send_json({"type": "player_color", "color": "black"})
-        else:
+        elif role == "guest":
             await websocket.send_json({"type": "player_color", "color": "white"})
+        else:
+            await websocket.send_json({"type": "role", "role": "observer"})
 
         await websocket.send_json(
             {
@@ -449,6 +512,11 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
         while True:
             data = await websocket.receive_json()
             t = data.get("type")
+
+            # 围观连接严格只读，避免客户端篡改棋局或计时结果。
+            if role == "observer" and t not in {"ping"}:
+                await websocket.send_json({"type": "read_only"})
+                continue
 
             if t == "move":
                 game = load_room_game(room_id)

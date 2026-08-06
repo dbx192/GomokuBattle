@@ -6,6 +6,7 @@
 
 - **人机对战** — 评分策略 AI，Canvas 棋盘，悔棋/重来
 - **房间对战** — 6 位房间码、链接分享、5 分钟自动过期
+- **实时围观** — 大厅浏览进行中的对局，登录后通过专用链接只读观看
 - **实时通信** — WebSocket，host/guest 精确寻址，自动重连
 - **房间续接** — 页面刷新不丢局，进度从 `game_records.moves` 恢复
 - **悔棋协议** — AI 即时撤销，房间模式三阶段（请求/同意/拒绝，30s 超时）
@@ -179,10 +180,12 @@ python seed_users.py
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | GET  | `/list` | — | 等待中的房间 |
+| GET  | `/playing` | — | 可围观的进行中房间 |
 | GET  | `/history` | ✓ | 我参与过的历史房间（最近 50 条） |
 | GET  | `/current` | ✓ | 当前进行中的房间（用于刷新续接） |
 | POST | `/create` | ✓ | 返回 `{ id, room_code, expires_at }` |
 | POST | `/join/{room_code}` | ✓ | 返回 `{ room_id, game_id, player_color, ... }` |
+| GET  | `/watch/{room_code}` | ✓ | 返回只读观战会话，仅限进行中的房间 |
 | GET  | `/info/{room_id}` | ✓ | 房间详情 |
 | WS   | `/ws/{room_id}?token=...` | query | 实时对弈（见下方协议） |
 
@@ -199,6 +202,7 @@ python seed_users.py
 | 类型 | 方向 | 说明 |
 |------|------|------|
 | `player_color` | S→C | `{ color: "black" \| "white" }` |
+| `role` | S→C | `{ role: "observer" }`，只读观战身份 |
 | `game_state` | S→C | `{ game: {board, moves, current_player}, status }` |
 | `opponent_joined` | S→C | `{}` / `{ guest_id }` |
 | `move` | C→S / S→C | `{ row, col, player, game_over?, winning_line? }` |
@@ -213,6 +217,8 @@ python seed_users.py
 | `timeout` | C→S / S→C | 60s 落子超时判负 |
 | `ping` / `pong` | 双向 | 心跳 |
 
+观战者会接收 `game_state`、`move`、实际执行的 `undo` 和对局结束消息；其落子、悔棋和超时消息会被服务端忽略。
+
 ## 业务规则
 
 1. **房间过期** — 创建后 5 分钟内无客人 → 状态 `expired`，推 `room_expired`（启动时 `cleanup_expired_rooms` 任务每 10s 扫描）
@@ -223,6 +229,7 @@ python seed_users.py
 6. **AI 即时悔棋** — 无对家协议，直接撤销最后两子
 7. **排行榜** — 前端可选 30s 自动刷新
 8. **房间推送** — `join_room` 同步端点用 `push_to_host` 线程安全推送 `opponent_joined` + `game_state`
+9. **实时围观** — 进行中房间可从大厅或 `/room?watch=XXXXXX` 进入；仅登录用户可观看，结束后不提供复盘
 
 ## 数据库
 

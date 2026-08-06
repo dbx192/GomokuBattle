@@ -67,6 +67,14 @@
                                 </button>
                             </li>
                             <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="tab-playing-btn"
+                                        data-bs-toggle="tab" data-bs-target="#tab-playing" type="button">
+                                    <i class="bi bi-eye"></i>
+                                    <span class="tab-text">进行中的对局</span>
+                                    <span class="tab-badge" id="playingRoomCount">0</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="tab-history-btn"
                                         data-bs-toggle="tab" data-bs-target="#tab-history" type="button">
                                     <i class="bi bi-clock-history"></i>
@@ -85,6 +93,19 @@
                                     </small>
                                 </div>
                                 <div class="room-list" id="roomList">
+                                    <div class="room-list-empty">
+                                        <i class="bi bi-hourglass-split"></i>
+                                        <span>加载中...</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="tab-playing" role="tabpanel">
+                                <div class="tab-toolbar">
+                                    <small class="text-muted">
+                                        <i class="bi bi-eye"></i> 登录后可实时观看
+                                    </small>
+                                </div>
+                                <div class="room-list" id="playingRoomList">
                                     <div class="room-list-empty">
                                         <i class="bi bi-hourglass-split"></i>
                                         <span>加载中...</span>
@@ -155,7 +176,7 @@
                         </div>
 
                         <div id="yourColorInfo" style="display:none;" class="text-center mb-2">
-                            <small class="text-muted">你的棋子：</small>
+                            <small class="text-muted" id="roleLabel">你的棋子：</small>
                             <strong id="yourColor">—</strong>
                         </div>
 
@@ -170,12 +191,14 @@
                             <i class="bi bi-hourglass"></i> 房间将在 <span id="expiryTimeLeft">5:00</span> 后关闭
                         </div>
 
-                        <button id="undoBtn" class="btn btn-outline-warning w-100 mb-2">
-                            <i class="bi bi-arrow-counterclockwise"></i> 请求悔棋
-                        </button>
-                        <button id="leaveRoomBtn" class="btn btn-outline-danger w-100">
-                            <i class="bi bi-box-arrow-left"></i> 离开房间
-                        </button>
+                        <div id="playerControls">
+                            <button id="undoBtn" class="btn btn-outline-warning w-100 mb-2">
+                                <i class="bi bi-arrow-counterclockwise"></i> 请求悔棋
+                            </button>
+                            <button id="leaveRoomBtn" class="btn btn-outline-danger w-100">
+                                <i class="bi bi-box-arrow-left"></i> 离开房间
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

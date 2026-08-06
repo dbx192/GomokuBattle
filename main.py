@@ -96,10 +96,15 @@ async def cleanup_expired_rooms():
         await asyncio.sleep(10)
         try:
             db = SessionLocal()
-            threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
+            now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+            waiting_threshold = now_utc - timedelta(minutes=5)
+            playing_threshold = now_utc - timedelta(hours=1)
             expired = (
                 db.query(Room)
-                .filter(Room.status == "waiting", Room.created_at < threshold)
+                .filter(
+                    ((Room.status == "waiting") & (Room.created_at < waiting_threshold))
+                    | ((Room.status == "playing") & (Room.created_at < playing_threshold))
+                )
                 .all()
             )
             for room in expired:

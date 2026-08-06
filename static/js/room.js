@@ -6,6 +6,7 @@ const PIECE_RADIUS = 16;
 let canvas, ctx;
 let roomId = null;
 let playerColor = null;
+let isObserver = false;
 let board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
 let currentPlayer = 'black';
 let isMyTurn = false;
@@ -18,6 +19,7 @@ let wsReconnectTimer = null;
 let gameStarted = false;
 
 let roomCheckInterval = null;
+let lobbyRefreshInterval = null;
 let roomExpireTime = null;
 let roomCountdownInterval = null;
 let turnTimerInterval = null;
@@ -60,6 +62,7 @@ $(function() {
     $('#shareHint').on('click', shareRoom);
     $('#shareHint2').on('click', shareRoom);
     $('#tab-history-btn').on('shown.bs.tab', loadHistoryList);
+    $('#tab-playing-btn').on('shown.bs.tab', loadPlayingRoomList);
 
     // 悔棋弹窗按钮
     $('#undoAcceptBtn').on('click', () => sendUndoResponse('accept'));
@@ -85,7 +88,14 @@ $(function() {
 
     drawBoard();
     loadRoomList();
+    loadPlayingRoomList();
     loadHistoryList();
+    lobbyRefreshInterval = setInterval(() => {
+        if (!roomId) {
+            loadRoomList();
+            loadPlayingRoomList();
+        }
+    }, 5000);
 
     checkAuth();
 });
@@ -108,9 +118,15 @@ function checkAuth() {
                 // 重新拉取历史（可能初次未登录态下是空数据）
                 loadHistoryList();
 
+                const urlParams = new URLSearchParams(window.location.search);
+                const watchCode = urlParams.get('watch');
+                if (watchCode) {
+                    watchRoom(watchCode);
+                    return;
+                }
+
                 restoreCurrentRoom();
 
-                const urlParams = new URLSearchParams(window.location.search);
                 const roomCode = urlParams.get('code');
                 if (roomCode && !roomId) {
                     $('#joinRoomCode').val(roomCode.toUpperCase());
@@ -268,6 +284,7 @@ function backToLobby() {
     }
     roomId = null;
     playerColor = null;
+    isObserver = false;
     gameStarted = false;
     gameOver = false;
     isMyTurn = false;
@@ -286,7 +303,10 @@ function backToLobby() {
     $('#leaveRoomBtn').prop('disabled', false).html('<i class="bi bi-box-arrow-left"></i> 离开房间');
     $('#turnTimer').hide();
     $('#yourColorInfo').hide();
+    $('#roleLabel').text('你的棋子：');
+    $('#playerControls').show();
     loadRoomList();
+    loadPlayingRoomList();
     loadHistoryList();
     drawBoard();
     clearRoomSession();
@@ -316,10 +336,10 @@ function startTurnTimer() {
 
         if (turnTimeLeft <= 0) {
             stopTurnTimer();
-            if (ws && ws.readyState === WebSocket.OPEN) {
+            if (!isObserver && ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'timeout' }));
             }
-            toastr.error('思考超时！');
+            if (!isObserver) toastr.error('思考超时！');
         }
     }, 1000);
 }
@@ -336,8 +356,11 @@ function stopTurnTimer() {
 function shareRoom() {
     const roomCode = $('#gameRoomCode').text() || $('#roomCode').text();
     if (!roomCode || roomCode === '------') return;
-    const joinUrl = `${window.location.origin}/room?code=${roomCode}`;
-    const shareText = `来一局五子棋吧！我已经准备好棋盘了，等你来挑战 🎯\n\n加入链接：${joinUrl}\n房间代码：${roomCode}`;
+    const watching = gameStarted || isObserver;
+    const roomUrl = `${window.location.origin}/room?${watching ? 'watch' : 'code'}=${roomCode}`;
+    const shareText = watching
+        ? `正在进行一局五子棋，来围观吧！\n\n观战链接：${roomUrl}\n房间代码：${roomCode}`
+        : `来一局五子棋吧！我已经准备好棋盘了，等你来挑战。\n\n加入链接：${roomUrl}\n房间代码：${roomCode}`;
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(shareText)
@@ -369,6 +392,7 @@ function createRoom() {
             if (res.code === 200) {
                 roomId = res.data.id;
                 playerColor = 'black';
+                isObserver = false;
                 persistRoomSession(res.data);
                 gameStarted = false;
                 gameOver = false;
@@ -441,12 +465,45 @@ function joinRoom() {
         });
 }
 
+function watchRoom(roomCode) {
+    if (!isLoggedIn()) {
+        showLoginModal();
+        return;
+    }
+    const code = String(roomCode || '').trim().toUpperCase();
+    if (!code || code.length !== 6) {
+        toastr.error('观战链接中的房间代码无效');
+        return;
+    }
+
+    API.get('/api/room/watch/' + encodeURIComponent(code))
+        .done(res => {
+            if (res.code === 200) {
+                enterObserverSession(res.data);
+            } else {
+                toastr.error(res.message || '无法进入观战');
+            }
+        })
+        .fail(xhr => {
+            if (xhr.status !== 401) {
+                toastr.error(xhr.responseJSON?.detail || '无法进入观战');
+            }
+        });
+}
+
 function loadRoomList() {
     API.get('/api/room/list')
         .done(res => {
             if (res.code === 200) {
                 renderRoomList(res.data);
             }
+        });
+}
+
+function loadPlayingRoomList() {
+    API.get('/api/room/playing')
+        .done(res => {
+            if (res.code === 200) renderPlayingRoomList(res.data);
         });
 }
 
@@ -624,6 +681,46 @@ function renderRoomList(rooms) {
     });
 }
 
+function renderPlayingRoomList(rooms) {
+    const container = $('#playingRoomList');
+    const list = Array.isArray(rooms) ? rooms : [];
+    $('#playingRoomCount').text(list.length);
+
+    if (list.length === 0) {
+        container.html(
+            '<div class="room-list-empty"><i class="bi bi-eye-slash"></i>' +
+            '<span class="small">暂无进行中的对局</span></div>'
+        );
+        return;
+    }
+
+    container.empty();
+    list.forEach(room => {
+        const host = room.host_name || '匿名';
+        const guest = room.guest_name || '匿名';
+        container.append(`
+            <a href="#" class="room-row is-clickable playing-room-item" data-code="${room.room_code}">
+                <div class="room-row-main">
+                    <div class="room-row-code">${room.room_code}</div>
+                    <div class="room-row-meta">
+                        <span class="meta-item"><i class="bi bi-person"></i>${host}</span>
+                        <span class="meta-item text-muted" style="opacity:0.5;">vs</span>
+                        <span class="meta-item"><i class="bi bi-person"></i>${guest}</span>
+                    </div>
+                </div>
+                <div class="room-row-side">
+                    <span class="badge bg-primary"><i class="bi bi-eye"></i> 观看</span>
+                </div>
+            </a>
+        `);
+    });
+
+    $('.playing-room-item').off('click').on('click', function(e) {
+        e.preventDefault();
+        watchRoom($(this).data('code'));
+    });
+}
+
 const STATUS_LABELS = {
     waiting: { text: '等待中', cls: 'bg-success' },
     playing: { text: '进行中', cls: 'bg-primary' },
@@ -637,7 +734,10 @@ function loadRoomInfo() {
     API.get('/api/room/info/' + roomId)
         .done(res => {
             if (res.code === 200) {
-                if (res.data.is_host) {
+                if (isObserver) {
+                    $('#blackPlayer').text(res.data.host_name || '黑棋');
+                    $('#whitePlayer').text(res.data.guest_name || '白棋');
+                } else if (res.data.is_host) {
                     $('#blackPlayer').text('你');
                 } else if (res.data.guest_id) {
                     $('#whitePlayer').text('你');
@@ -736,7 +836,19 @@ function handleWSMessage(data) {
             }
             break;
 
+        case 'role':
+            if (data.role === 'observer') {
+                isObserver = true;
+                playerColor = null;
+                $('#yourColorInfo').show();
+                $('#roleLabel').text('当前身份：');
+                $('#yourColor').text('观战中');
+                $('#playerControls').hide();
+            }
+            break;
+
         case 'opponent_joined':
+            if (isObserver) break;
             hideWaiting();
             $('#roomStatus').text('游戏开始').removeClass('bg-warning').addClass('bg-success');
             gameStarted = true;
@@ -776,7 +888,10 @@ function handleWSMessage(data) {
                 gameStarted = true;
                 stopRoomExpiryCheck();
                 hideWaiting();
-                if (playerColor === currentPlayer) {
+                if (isObserver) {
+                    isMyTurn = false;
+                    startTurnTimer();
+                } else if (playerColor === currentPlayer) {
                     isMyTurn = true;
                     startTurnTimer();
                 } else {
@@ -794,8 +909,8 @@ function handleWSMessage(data) {
                 lastMove = { row: data.row, col: data.col, player: data.player };
             }
             currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
-            isMyTurn = (playerColor === currentPlayer);
-            if (isMyTurn) { startTurnTimer(); } else { stopTurnTimer(); }
+            isMyTurn = !isObserver && (playerColor === currentPlayer);
+            if (isObserver || isMyTurn) { startTurnTimer(); } else { stopTurnTimer(); }
             drawBoard();
 
             if (data.game_over) {
@@ -848,11 +963,14 @@ function handleWSMessage(data) {
 
         case 'pong':
             break;
+
+        case 'read_only':
+            break;
     }
 }
 
 function handleClick(e) {
-    if (!gameStarted || gameOver || !isMyTurn) return;
+    if (isObserver || !gameStarted || gameOver || !isMyTurn) return;
     if (playerColor !== currentPlayer) return;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         toastr.warning('连接尚未就绪');
@@ -881,6 +999,7 @@ function handleClick(e) {
 }
 
 function requestUndo() {
+    if (isObserver) return;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         toastr.warning('连接尚未就绪');
         return;
@@ -987,6 +1106,7 @@ function enterRoomSession(roomData) {
     stopRoomExpiryCheck();
     roomId = roomData.room_id;
     playerColor = roomData.player_color;
+    isObserver = false;
     persistRoomSession(roomData);
     gameStarted = false;
     gameOver = false;
@@ -1022,6 +1142,34 @@ function enterRoomSession(roomData) {
         hideWaiting();
         $('#roomStatus').text('正在恢复对局...').removeClass('bg-warning').addClass('bg-success');
     }
+
+    connectWebSocket();
+    loadRoomInfo();
+}
+
+function enterObserverSession(roomData) {
+    stopRoomExpiryCheck();
+    roomId = roomData.room_id;
+    playerColor = null;
+    isObserver = true;
+    gameStarted = true;
+    gameOver = false;
+    isMyTurn = false;
+    winningLine = null;
+    lastMove = null;
+    currentPlayer = 'black';
+    board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+
+    $('#lobbyView').hide();
+    $('#gameView').show();
+    $('#yourColorInfo').show();
+    $('#roleLabel').text('当前身份：');
+    $('#yourColor').text('观战中');
+    $('#playerControls').hide();
+    $('#gameRoomCodeCard').show();
+    $('#gameRoomCode').text(roomData.room_code || '------');
+    $('#roomStatus').text('正在进入观战...').removeClass('bg-warning').addClass('bg-success');
+    hideWaiting();
 
     connectWebSocket();
     loadRoomInfo();
@@ -1098,7 +1246,12 @@ function endGame(winner, line) {
     stopTurnTimer();
     closeUndoModals();  // 终局了，悔棋弹窗没意义，顺手关掉
 
-    if (winner === playerColor) {
+    if (isObserver) {
+        const winnerLabel = winner === 'black' ? '黑棋获胜' : '白棋获胜';
+        $('#resultIcon').removeClass().addClass('bi-trophy-fill');
+        $('#resultText').text(winnerLabel);
+        $('#resultModal .modal-header').removeClass('bg-danger').addClass('bg-success');
+    } else if (winner === playerColor) {
         $('#resultIcon').removeClass().addClass('bi-trophy-fill');
         $('#resultText').text('你赢了!');
         $('#resultModal .modal-header').removeClass('bg-danger').addClass('bg-success');
