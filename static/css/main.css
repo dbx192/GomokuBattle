@@ -114,8 +114,8 @@ body {
 }
 
 /* Multi-game table: quiet chrome around a deliberately dominant board. */
-.play-page { width:100%; margin:0 auto; padding:14px clamp(14px, 2.4vw, 40px) 20px; }
-.play-header { display:flex; align-items:center; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,.08); }
+.play-page { width:100%; margin:0 auto; padding:6px clamp(14px, 2.4vw, 40px) 12px; }
+.play-header { display:flex; align-items:center; padding-bottom:7px; border-bottom:1px solid rgba(255,255,255,.08); }
 .play-header > div { display:flex; align-items:center; gap:18px; }
 .back-link { color:var(--text-secondary); font:600 .78rem var(--font-mono); letter-spacing:.04em; text-decoration:none; }
 .back-link:hover { color:var(--gold-bright); }
@@ -128,7 +128,7 @@ body {
 .mode-switch { display:flex; padding:3px; background:#14151a; border:1px solid rgba(255,255,255,.1); border-radius:6px; }
 .mode-choice { flex:1; border:0; background:transparent; color:var(--text-secondary); padding:8px 6px; border-radius:4px; font-size:.88rem; }
 .mode-choice.is-active { color:#151313; background:var(--gold-bright); }
-.play-layout { display:grid; grid-template-columns:190px minmax(0, 1fr); gap:clamp(18px, 3vw, 48px); padding-top:14px; align-items:start; }
+.play-layout { display:grid; grid-template-columns:250px minmax(0, 1fr); gap:clamp(22px, 3vw, 44px); padding-top:8px; align-items:start; }
 .play-sidebar { padding-top:6px; }
 .player-strip { display:flex; align-items:center; gap:11px; padding:13px 0; border-bottom:1px solid rgba(255,255,255,.08); }
 .player-strip > div { display:grid; line-height:1.2; gap:4px; flex:1; }
@@ -166,7 +166,7 @@ body {
 .live-indicator i { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--jade); margin-right:4px; box-shadow:0 0 8px var(--jade); }
 .board-frame .game-board-canvas { display:block; width:100%; border:0; border-radius:2px; box-shadow:none; }
 .move-hint { color:var(--text-muted); font-size:.75rem; margin:13px 0 0; }
-@media (min-width: 801px) { .board-frame { width:min(100%, calc(100vh - 190px)); } }
+@media (min-width: 801px) { .play-header { display:none; } .play-page { padding-top:4px; } .play-layout { padding-top:4px; } .board-frame { width:min(100%, calc(100vh - 120px)); } }
 @media (max-width: 800px) { .play-page { padding-top:18px; } .play-header { align-items:flex-start; flex-direction:column; } .play-layout { grid-template-columns:1fr; gap:22px; } .play-sidebar { order:2; display:grid; grid-template-columns:1fr 1fr; gap:0 16px; } .play-actions,.player-strip,.status-block,.rules-note { grid-column:1/-1; } .play-actions { grid-template-columns:1fr 1fr; } .play-actions .mode-switch { min-width:0; } .room-join { grid-column:1/-1; } .sidebar-actions { grid-column:1/-1; grid-template-columns:1fr 1fr; } }
 
 /* Subtle grain overlay on body */

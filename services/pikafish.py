@@ -8,6 +8,7 @@ from __future__ import annotations
 
 def board_to_fen(board: list[list[str]], current_player: str) -> str:
     """Serialize the internal 10x9 board into a Pikafish-compatible FEN."""
+    piece_map = {"h": "n", "e": "b", "H": "N", "E": "B"}
     rows = []
     for row in board:
         empty = 0
@@ -19,7 +20,7 @@ def board_to_fen(board: list[list[str]], current_player: str) -> str:
                 if empty:
                     fields.append(str(empty))
                     empty = 0
-                fields.append(piece)
+                fields.append(piece_map.get(piece, piece))
         if empty:
             fields.append(str(empty))
         rows.append("".join(fields))
@@ -41,4 +42,3 @@ def _uci_to_move(uci: str) -> dict[str, int]:
     if not (0 <= fr <= 9 and 0 <= tr <= 9):
         raise ValueError("Pikafish returned an invalid move")
     return {"from_row": 9 - fr, "from_col": fc, "to_row": 9 - tr, "to_col": tc}
-

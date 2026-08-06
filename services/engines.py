@@ -180,9 +180,10 @@ class ChessEngine(GameEngine):
         return self._serialize(board, [])
 
     def _serialize(self, board, history):
+        chess = self._chess()
         squares = {}
         for square, piece in board.piece_map().items():
-            squares[board.square_name(square)] = piece.symbol()
+            squares[chess.square_name(square)] = piece.symbol()
         state = {"game_code": self.game_code, "fen": board.fen(), "current_player": "white" if board.turn else "black", "board": squares, "history": history}
         if board.is_checkmate(): state["result"] = {"winner": "black" if board.turn else "white", "reason": "checkmate"}
         elif board.is_stalemate(): state["result"] = {"winner": None, "reason": "stalemate"}

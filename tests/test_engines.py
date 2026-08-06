@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from services.engines import GameRuleError, GoEngine, GomokuEngine, XiangqiEngine
 from services.game_records import apply_result
-from services.external_ai import choose_xiangqi, difficulty_profile
+from services.external_ai import choose_go, choose_xiangqi, difficulty_profile
 from services.pikafish import board_to_fen
 
 
@@ -75,7 +75,7 @@ def test_pikafish_fen_uses_red_side_to_move():
     state = XiangqiEngine().new_state()
     fen = board_to_fen(state["board"], state["current_player"])
     assert fen.endswith(" w - - 0 1")
-    assert fen.startswith("rheakaehr/9/1c5c1/p1p1p1p1p")
+    assert fen.startswith("rnbakabnr/9/1c5c1/p1p1p1p1p")
 
 
 def test_external_pikafish_move_is_converted_and_rules_checked(monkeypatch):
@@ -90,3 +90,16 @@ def test_external_pikafish_move_is_converted_and_rules_checked(monkeypatch):
 def test_ai_difficulty_profiles_increase_search_budget():
     assert difficulty_profile("easy")["move_time_ms"] < difficulty_profile("normal")["move_time_ms"]
     assert difficulty_profile("normal")["move_time_ms"] < difficulty_profile("hard")["move_time_ms"]
+
+
+def test_katago_reads_only_the_numbered_genmove_response(monkeypatch):
+    seen = {}
+    monkeypatch.setattr("services.external_ai.resolve_path", lambda code: "/tmp/katago")
+    monkeypatch.setattr("services.external_ai.go_resources", lambda: ("/tmp/gtp.cfg", "/tmp/model.bin.gz"))
+    def fake_run(command, commands, timeout, **kwargs):
+        seen["commands"] = commands
+        return "=1\n\n=2\n\n=3\n\n=4 D4\n\n"
+    monkeypatch.setattr("services.external_ai._run", fake_run)
+    state = GoEngine().new_state()
+    assert choose_go(state, "normal") == {"row": 15, "col": 3}
+    assert seen["commands"][-1] == "4 genmove B"
