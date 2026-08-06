@@ -74,7 +74,7 @@ async def make_ai_move(
         game_record.ended_at = game_record.ended_at or datetime.now(timezone.utc)
         current_user.wins += 1
         db.commit()
-        state_store.delete_game("ai", move_data.game_id)
+        state_store.save_game("ai", move_data.game_id, game, state_store.AI_TTL_SECONDS)
 
         return ResponseModel(
             data=AiMoveResponse(
@@ -102,7 +102,7 @@ async def make_ai_move(
         game_record.ended_at = game_record.ended_at or datetime.now(timezone.utc)
         current_user.losses += 1
         db.commit()
-        state_store.delete_game("ai", move_data.game_id)
+        state_store.save_game("ai", move_data.game_id, game, state_store.AI_TTL_SECONDS)
 
         return ResponseModel(
             data=AiMoveResponse(
@@ -156,6 +156,14 @@ async def undo_ai_move(
     )
     if game_record:
         game_record.moves = game.moves
+        if game_record.status == "completed":
+            if game_record.winner_id == current_user.id:
+                current_user.wins = max(0, current_user.wins - 1)
+            elif game_record.winner_id is None:
+                current_user.losses = max(0, current_user.losses - 1)
+            game_record.winner_id = None
+            game_record.status = "in_progress"
+            game_record.ended_at = None
         db.commit()
 
     state_store.save_game("ai", move_data.game_id, game, state_store.AI_TTL_SECONDS)

@@ -159,7 +159,7 @@ function makeMove(row, col) {
                         movesHistory.push({ row: aiMove.row, col: aiMove.col, player: 'white' });
                         drawBoard();
 
-                        if (aiMove.game_over) {
+                if (aiMove.game_over) {
                             endGame(aiMove.winner, aiMove.winning_line);
                             return;
                         }
@@ -178,6 +178,7 @@ function makeMove(row, col) {
 }
 
 function undoMove() {
+    if (!gameId) return;
     API.post('/api/game/ai/undo', { game_id: gameId })
         .done(res => {
             if (res.code === 200 && res.data.success) {
@@ -196,6 +197,12 @@ function undoMove() {
                         : null;
                 }
                 drawBoard();
+                gameOver = false;
+                winningLine = null;
+                isMyTurn = true;
+                $('#resultModal').modal('hide');
+                $('#undoBtn').prop('disabled', true);
+                $('#gameStatus').html('<span class="badge bg-success">进行中 - 你的回合</span>');
                 toastr.success('已撤销');
             }
         });
@@ -205,7 +212,7 @@ function endGame(winner, line) {
     gameOver = true;
     winningLine = line;
     
-    $('#undoBtn').prop('disabled', true);
+    $('#undoBtn').prop('disabled', false);
     
     if (winner === 'black') {
         $('#resultIcon').removeClass('bi-emoji-frown').addClass('bi-trophy-fill');

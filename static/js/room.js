@@ -922,6 +922,15 @@ function handleWSMessage(data) {
         case 'undo':
             // 真正的悔棋执行：服务器在双方同意后才广播这条
             closeUndoModals();
+            gameOver = false;
+            winningLine = null;
+            gameStarted = true;
+            $('#roomStatus').text('游戏进行中').removeClass('bg-warning').addClass('bg-success');
+            const resultModal = document.getElementById('resultModal');
+            if (resultModal) {
+                const resultInstance = bootstrap.Modal.getInstance(resultModal);
+                if (resultInstance) resultInstance.hide();
+            }
             if (data.row !== undefined && data.col !== undefined) {
                 board[data.row][data.col] = null;
                 // 悔棋后应该由被悔棋方重下，所以当前玩家就是被悔棋的玩家
@@ -1004,7 +1013,7 @@ function requestUndo() {
         toastr.warning('连接尚未就绪');
         return;
     }
-    if (!gameStarted || gameOver) {
+    if (!gameStarted) {
         toastr.warning('当前没有进行中的对局');
         return;
     }
@@ -1244,7 +1253,10 @@ function endGame(winner, line) {
     gameOver = true;
     winningLine = line;
     stopTurnTimer();
-    closeUndoModals();  // 终局了，悔棋弹窗没意义，顺手关掉
+    closeUndoModals();
+    if (!isObserver) {
+        $('#undoBtn').prop('disabled', false).html('<i class="bi bi-arrow-counterclockwise"></i> 请求悔棋');
+    }
 
     if (isObserver) {
         const winnerLabel = winner === 'black' ? '黑棋获胜' : '白棋获胜';

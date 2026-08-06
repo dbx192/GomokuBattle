@@ -77,11 +77,12 @@
 </div>
 
 {# ── 对局结束 modal（页面特有） ── #}
-<div class="modal fade" id="resultModal" tabindex="-1" data-bs-backdrop="static">
+<div class="modal fade" id="resultModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="true">
     <div class="modal-dialog modal-dialog-centered modal-sm">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">对局结束</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="关闭"></button>
             </div>
             <div class="modal-body text-center py-4">
                 <i class="bi bi-trophy-fill" id="resultIcon" style="font-size:3rem;"></i>

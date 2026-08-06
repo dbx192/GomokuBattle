@@ -519,6 +519,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                 continue
 
             if t == "move":
+                # 终局后棋局仍保留用于悔棋，但不能继续落子。
+                if room.status == "completed":
+                    continue
                 game = load_room_game(room_id)
                 if game is None:
                     continue
@@ -577,10 +580,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
 
                     db.commit()
 
-                if winner:
-                    state_store.delete_game("room", room_id)
-                else:
-                    save_room_game(room_id, game)
+                # 保留终局棋局，允许双方在结果弹框关闭后申请悔棋。
+                save_room_game(room_id, game)
 
                 move_data = {
                     "type": "move",
@@ -671,6 +672,20 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                 if game_record:
                     game_record.moves = game.moves
                     flag_modified(game_record, "moves")
+                    if game_record.status == "completed":
+                        winner_id = game_record.winner_id
+                        if winner_id:
+                            winner_user = db.query(User).filter(User.id == winner_id).first()
+                            loser_id = room.guest_id if winner_id == room.host_id else room.host_id
+                            loser_user = db.query(User).filter(User.id == loser_id).first()
+                            if winner_user:
+                                winner_user.wins = max(0, winner_user.wins - 1)
+                            if loser_user:
+                                loser_user.losses = max(0, loser_user.losses - 1)
+                        game_record.winner_id = None
+                        game_record.status = "in_progress"
+                        game_record.ended_at = None
+                        room.status = "playing"
                     db.commit()
 
                 save_room_game(room_id, game)
@@ -685,6 +700,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                                 "row": row,
                                 "col": col,
                                 "player": player_str,
+                            }
+                        )
+                        await conn.send_json(
+                            {
+                                "type": "game_state",
+                                "game": game.to_dict(),
+                                "status": "playing",
                             }
                         )
                     except Exception:
@@ -717,6 +739,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                         pass
 
             elif t == "timeout":
+                if room.status == "completed":
+                    continue
                 if load_room_game(room_id) is None:
                     continue
 
@@ -751,7 +775,10 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str = ""
                         loser_user.losses += 1
                     db.commit()
 
-                state_store.delete_game("room", room_id)
+                # 保留终局棋局，允许对局双方悔棋恢复。
+                game = load_room_game(room_id)
+                if game:
+                    save_room_game(room_id, game)
 
                 for conn in manager.all_conns(room_id):
                     try:

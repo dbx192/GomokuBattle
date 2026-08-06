@@ -228,17 +228,21 @@
 </div>
 
 {# ── 对局结束 modal ── #}
-<div class="modal fade" id="resultModal" tabindex="-1" data-bs-backdrop="static">
+<div class="modal fade" id="resultModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="true">
     <div class="modal-dialog modal-dialog-centered modal-sm">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">对局结束</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="关闭"></button>
             </div>
             <div class="modal-body text-center py-4">
                 <i id="resultIcon" style="font-size:3rem;"></i>
                 <h4 class="mt-3" id="resultText">—</h4>
             </div>
             <div class="modal-footer justify-content-center">
+                <button class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-lg"></i> 关闭
+                </button>
                 <button class="btn btn-primary" data-bs-dismiss="modal" onclick="location.href='/room'">
                     <i class="bi bi-plus-circle"></i> 新房间
                 </button>
