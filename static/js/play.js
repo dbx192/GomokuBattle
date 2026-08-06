@@ -6,6 +6,7 @@ let sessionId = null, room = null, socket = null, state = null, playerColor = nu
 let catalog = {};
 let mode = 'ai';
 let aiPollTimer = null;
+let shownResultKey = null;
 
 const names = {gomoku: '五子棋', go: '围棋', xiangqi: '中国象棋', chess: '国际象棋'};
 
@@ -19,6 +20,7 @@ $(function () {
     $('#startBtn').on('click', start);
     $('#joinBtn').on('click', join);
     $('#passBtn').on('click', () => sendAction('pass'));
+    $('#undoBtn').on('click', undoMove);
     $('#resignBtn').on('click', () => sendAction('resign'));
     $('.mode-choice').on('click', function () { mode = this.dataset.mode; $('.mode-choice').removeClass('is-active'); $(this).addClass('is-active'); updateMode(); });
     canvas.addEventListener('click', clickBoard);
@@ -42,7 +44,7 @@ function start() {
         return;
     }
     API.post(`/api/games/${GAME}/sessions`, {difficulty: $('#difficultySelect').val()}).done(res => {
-        clearAiPolling(); sessionId = res.data.game_id; playerColor = res.data.player_color; state = res.data.state; active(); monitorAiTurn();
+        clearAiPolling(); shownResultKey = null; sessionId = res.data.game_id; playerColor = res.data.player_color; state = res.data.state; active(); monitorAiTurn();
     }).fail(showError);
 }
 
@@ -60,8 +62,11 @@ function active() {
     $('#turnPill').text(state?.result ? '已结束' : (isTurn ? '你的回合' : '对手回合')).toggleClass('is-your-turn', !!isTurn);
     $('#playerSide').text(playerColor || '等待开始');
     $('#resignBtn').prop('disabled', !state || !!state.result);
+    const canUndo = !!state && (room ? !!state.history?.length && !state.result : state.history?.length >= 2 && (isTurn || !!state.result));
+    $('#undoBtn').toggleClass('d-none', GAME === 'go').prop('disabled', !canUndo);
     $('#passBtn').toggleClass('d-none', GAME !== 'go');
     draw();
+    showResultOnce();
 }
 function clearAiPolling() { if (aiPollTimer) { clearTimeout(aiPollTimer); aiPollTimer = null; } }
 function monitorAiTurn() {
@@ -75,7 +80,20 @@ function activateRoom() {
     state = room.state; active(); $('#roomInfo').removeClass('d-none').html(`<span>房间码</span><strong>${room.room_code}</strong><small>分享给好友加入</small>`);
     const token = localStorage.getItem('access_token'); const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     socket = new WebSocket(`${proto}//${location.host}/api/match-rooms/${room.room_id}/ws?token=${encodeURIComponent(token)}`);
-    socket.onmessage = event => { const data = JSON.parse(event.data); if (data.type === 'error') return toastr.error(data.message); if (data.type === 'role') playerColor = data.color; if (data.state) { room = data; state = data.state; active(); renderClock(); } };
+    socket.onmessage = event => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'error') return toastr.error(data.message);
+        if (data.type === 'undo_request') {
+            if (data.from === playerColor) return toastr.info('已向对手发送悔棋请求');
+            const accepted = window.confirm('对手请求悔棋，是否同意？');
+            socket?.send(JSON.stringify({type: accepted ? 'undo_accept' : 'undo_decline'}));
+            return;
+        }
+        if (data.type === 'undo_accepted') { toastr.success('已悔棋'); return; }
+        if (data.type === 'undo_declined') { toastr.info('对手拒绝了悔棋请求'); return; }
+        if (data.type === 'role') playerColor = data.color;
+        if (data.state) { room = data; state = data.state; active(); renderClock(); }
+    };
     socket.onclose = () => { if (room && room.status === 'playing') $('#gameStatus').text('连接已关闭，请刷新重连'); };
 }
 
@@ -85,6 +103,37 @@ function sendAction(type, move) {
     if (type === 'move') API.post(`/api/games/${GAME}/sessions/move`, {game_id: sessionId, move}).done(res => { state = res.data.state; active(); monitorAiTurn(); }).fail(showError);
     else if (type === 'pass') API.post(`/api/games/go/sessions/pass`, {game_id: sessionId}).done(res => { state = res.data.state; active(); monitorAiTurn(); }).fail(showError);
     else if (type === 'resign') API.post(`/api/games/${GAME}/sessions/resign`, {game_id: sessionId}).done(res => { clearAiPolling(); state = res.data.state; active(); }).fail(showError);
+}
+
+function undoMove() {
+    if (!state || !state.history?.length) return;
+    if (room) {
+        if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({type: 'undo'}));
+        return;
+    }
+    clearAiPolling();
+    API.post(`/api/games/${GAME}/sessions/undo`, {game_id: sessionId}).done(res => {
+        state = res.data.state;
+        shownResultKey = null;
+        bootstrap.Modal.getInstance(document.getElementById('gameResultModal'))?.hide();
+        active();
+        toastr.success('已撤回最近一轮');
+    }).fail(xhr => { showError(xhr); monitorAiTurn(); });
+}
+
+function showResultOnce() {
+    const result = state?.result;
+    if (!result) return;
+    const key = `${sessionId || room?.room_id}:${state.history?.length || 0}:${result.winner ?? 'draw'}:${result.reason}`;
+    if (shownResultKey === key) return;
+    shownResultKey = key;
+    const won = result.winner === playerColor;
+    const draw = result.winner == null;
+    $('#gameResultHeader').toggleClass('bg-success', won).toggleClass('bg-danger', !won && !draw).toggleClass('bg-secondary', draw);
+    $('#gameResultIcon').attr('class', `bi ${won ? 'bi-trophy-fill text-success' : draw ? 'bi-dash-circle text-secondary' : 'bi-emoji-frown text-danger'}`).css('font-size', '3rem');
+    $('#gameResultText').text(won ? '你赢了！' : draw ? '和棋' : '对手获胜');
+    $('#gameResultDetail').text({five_in_a_row: '连成五子', checkmate: '将死', stalemate: '无子可走', resignation: '对方认输', timeout: '对方超时'}[result.reason] || '本局已结束');
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('gameResultModal')).show();
 }
 
 function showError(xhr) { toastr.error(xhr.responseJSON?.detail || '操作失败'); }

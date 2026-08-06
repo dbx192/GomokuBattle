@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal, get_db
 from models.game import GameRecord
+from models.game_stats import UserGameStats
 from models.user import User
 from schemas.common import ResponseModel
 from services.engines import GAME_CATALOG, GameRuleError, get_engine
@@ -60,6 +61,25 @@ def _persist(db: Session, record: GameRecord, state: dict, player_color: str):
     apply_result(db, record, state, {player_color: record.player1_id})
     db.commit()
     state_store.save_state("session", record.id, state, state_store.AI_TTL_SECONDS)
+
+
+def _reopen_record(db: Session, record: GameRecord, previous_state: dict) -> None:
+    """Reverse terminal AI-game accounting before persisting an undone state."""
+    if record.status != "completed":
+        return
+    stats = db.query(UserGameStats).filter_by(user_id=record.player1_id, game_code=record.game_code).first()
+    if stats:
+        winner = previous_state.get("result", {}).get("winner")
+        if winner == _player_color(record.game_code):
+            stats.wins = max(0, (stats.wins or 0) - 1)
+        elif winner is None:
+            stats.draws = max(0, (stats.draws or 0) - 1)
+        else:
+            stats.losses = max(0, (stats.losses or 0) - 1)
+    record.status = "in_progress"
+    record.winner_id = None
+    record.result_reason = None
+    record.ended_at = None
 
 
 def _ai_move(game_code: str, engine, state: dict, difficulty: str) -> dict:
@@ -163,6 +183,25 @@ def move(game_code: str, body: MoveBody, background_tasks: BackgroundTasks, db: 
     _persist(db, record, state, player_color)
     if not state.get("result") and state.get("phase", "playing") == "playing":
         background_tasks.add_task(_complete_ai_turn, game_code, record.id, player_color)
+    return ResponseModel(data={"state": state})
+
+
+@router.post("/{game_code}/sessions/undo", response_model=ResponseModel[dict])
+def undo_session(game_code: str, body: GameIdBody, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Undo the latest player/AI exchange and return control to the player."""
+    record = _get_record(db, body.game_id, current_user.id)
+    if record.game_code != game_code or record.game_type != "ai":
+        raise HTTPException(status_code=409, detail="只能悔人机对局")
+    previous_state = state_store.load_state("session", record.id) or record.game_state
+    if not previous_state or len(previous_state.get("history", [])) < 2:
+        raise HTTPException(status_code=400, detail="至少完成一轮后才能悔棋")
+    try:
+        engine = get_engine(game_code)
+        state = engine.undo(engine.undo(previous_state))
+    except GameRuleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _reopen_record(db, record, previous_state)
+    _persist(db, record, state, _player_color(game_code))
     return ResponseModel(data={"state": state})
 
 

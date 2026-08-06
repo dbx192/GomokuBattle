@@ -19,11 +19,17 @@
             <div class="status-block"><span class="status-kicker">对局状态</span><strong id="gameStatus">请选择模式并开始</strong><span id="clock" class="clock-display">--:--</span></div>
             <div id="roomInfo" class="room-info d-none"></div>
             <div id="roomControls" class="room-join d-none"><label>加入好友房间</label><div class="join-line"><input id="roomCodeInput" maxlength="6" class="form-control text-uppercase" placeholder="输入 6 位房间码"><button id="joinBtn" class="icon-button" title="加入房间"><i class="bi bi-arrow-right"></i></button></div></div>
-            <div class="sidebar-actions"><button id="passBtn" class="btn btn-subtle d-none"><i class="bi bi-skip-forward"></i> 停一手</button><button id="resignBtn" class="btn btn-danger-subtle" disabled><i class="bi bi-flag"></i> 认输</button></div>
+            <div class="sidebar-actions"><button id="undoBtn" class="btn btn-subtle" disabled><i class="bi bi-arrow-counterclockwise"></i> 悔棋</button><button id="passBtn" class="btn btn-subtle d-none"><i class="bi bi-skip-forward"></i> 停一手</button><button id="resignBtn" class="btn btn-danger-subtle" disabled><i class="bi bi-flag"></i> 认输</button></div>
             <p class="rules-note"><i class="bi bi-shield-check"></i> 服务端规则校验<br><i class="bi bi-wifi"></i> 实时状态自动同步</p>
         </aside>
         <section class="board-column"><div class="board-frame"><div class="board-caption"><span id="boardLabel">棋盘</span><span class="live-indicator"><i></i> LIVE</span></div><canvas id="boardCanvas" width="720" height="720" class="game-board-canvas"></canvas></div><p id="moveHint" class="move-hint">点击棋盘落子</p></section>
     </main>
 </div>
+<div class="modal fade" id="gameResultModal" tabindex="-1" aria-labelledby="gameResultTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm"><div class="modal-content">
+        <div class="modal-header text-white" id="gameResultHeader"><h5 class="modal-title" id="gameResultTitle">对局结束</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+        <div class="modal-body text-center py-4"><i id="gameResultIcon" class="bi bi-trophy-fill text-success" style="font-size: 3rem;"></i><h4 class="mt-3 mb-1" id="gameResultText"></h4><p class="text-muted mb-0" id="gameResultDetail"></p></div>
+    </div></div>
+</div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/play.js?v=20260813"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/play.js?v=20260814"></script>{% endblock %}

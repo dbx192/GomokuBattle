@@ -50,6 +50,16 @@ def test_xiangqi_cannon_can_move_along_an_empty_line():
     assert state["board"][7][1] == "0"
 
 
+def test_xiangqi_undo_restores_the_previous_position():
+    engine = XiangqiEngine()
+    state = engine.apply_move(engine.new_state(), {"from_row": 6, "from_col": 0, "to_row": 5, "to_col": 0}, "red")
+    restored = engine.undo(state)
+    assert restored["current_player"] == "red"
+    assert restored["board"][6][0] == "P"
+    assert restored["board"][5][0] == "0"
+    assert restored["history"] == []
+
+
 def test_terminal_game_initializes_new_game_stats_before_incrementing():
     class Query:
         def filter_by(self, **kwargs):
@@ -143,3 +153,21 @@ def test_ai_session_returns_player_move_before_ai_thinks(monkeypatch):
     response = games_router.move("gomoku", games_router.MoveBody(game_id=999, move={"row": 7, "col": 7}), tasks, None, SimpleNamespace(id=1))
     assert response.data["state"]["history"] == [{"row": 7, "col": 7, "player": "black"}]
     assert len(tasks.tasks) == 1
+
+
+def test_ai_session_undo_removes_a_complete_player_ai_exchange(monkeypatch):
+    engine = GomokuEngine()
+    state = engine.apply_move(engine.new_state(), {"row": 7, "col": 7}, "black")
+    state = engine.apply_move(state, {"row": 7, "col": 8}, "white")
+    record = SimpleNamespace(id=999, game_code="gomoku", game_type="ai", status="in_progress", player1_id=1, game_state=state)
+
+    class Database:
+        def commit(self):
+            pass
+
+    monkeypatch.setattr(games_router, "_get_record", lambda *args: record)
+    monkeypatch.setattr(games_router.state_store, "load_state", lambda *args: None)
+    monkeypatch.setattr(games_router.state_store, "save_state", lambda *args: None)
+    response = games_router.undo_session("gomoku", games_router.GameIdBody(game_id=999), Database(), SimpleNamespace(id=1))
+    assert response.data["state"]["history"] == []
+    assert response.data["state"]["current_player"] == "black"
