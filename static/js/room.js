@@ -64,8 +64,6 @@ $(function() {
     $('#leaveRoomBtn').on('click', leaveRoom);
     $('#shareHint').on('click', shareRoom);
     $('#shareHint2').on('click', shareRoom);
-    $('#tab-history-btn').on('shown.bs.tab', ensureHistoryListLoaded);
-    $('#tab-playing-btn').on('shown.bs.tab', ensurePlayingRoomListLoaded);
     $('#refreshPlayingRoomsBtn').on('click', () => loadPlayingRoomList(true));
     $('#refreshHistoryRoomsBtn').on('click', () => loadHistoryList(true));
 
@@ -92,6 +90,8 @@ $(function() {
     });
 
     drawBoard();
+    loadPlayingRoomList();
+    loadHistoryList();
     checkAuth();
 });
 
@@ -492,10 +492,6 @@ function resumeRoom(roomCode) {
         .fail(xhr => toastr.error(xhr.responseJSON?.detail || '无法恢复房间'));
 }
 
-function ensurePlayingRoomListLoaded() {
-    if (!playingRoomsLoaded && !playingRoomsLoading) loadPlayingRoomList();
-}
-
 function loadPlayingRoomList(force = false) {
     if (playingRoomsLoading || (playingRoomsLoaded && !force)) return;
     playingRoomsLoading = true;
@@ -507,10 +503,6 @@ function loadPlayingRoomList(force = false) {
             }
         })
         .always(() => { playingRoomsLoading = false; });
-}
-
-function ensureHistoryListLoaded() {
-    if (!historyRoomsLoaded && !historyRoomsLoading) loadHistoryList();
 }
 
 function loadHistoryList(force = false) {

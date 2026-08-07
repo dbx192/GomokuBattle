@@ -42,6 +42,10 @@ function needAuth() { if (!authHeaders()) { showLoginModal(); return false; } re
 function start() {
     if (!needAuth()) return;
     if (mode === 'room') {
+        if (isObserver) {
+            location.href = `/play/${encodeURIComponent(GAME)}`;
+            return;
+        }
         API.post('/api/match-rooms', {game_code: GAME}).done(res => { room = res.data; playerColor = colors()[0]; activateRoom(); }).fail(showError);
         return;
     }

@@ -180,6 +180,17 @@ def _serialize_room(room: Room, host_name: str = None, guest_name: str = None) -
 def get_playing_room_list(db: Session = Depends(get_db)):
     """公开展示可围观的进行中房间；进入围观仍要求登录。"""
     playing_threshold = datetime.now(timezone.utc).replace(tzinfo=None) - PLAYING_ROOM_MAX_AGE
+    # Keep the public list correct even if the background cleanup task was
+    # interrupted while the service was restarting.
+    stale_rooms = (
+        db.query(Room)
+        .filter(Room.status == "playing", Room.created_at < playing_threshold)
+        .all()
+    )
+    for room in stale_rooms:
+        room.status = "expired"
+    if stale_rooms:
+        db.commit()
     rooms = (
         db.query(Room)
         .filter(Room.status == "playing", Room.created_at >= playing_threshold)
