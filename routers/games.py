@@ -61,11 +61,13 @@ def _get_record(db: Session, game_id: int, user_id: int) -> GameRecord:
 
 
 def _persist(db: Session, record: GameRecord, state: dict, player_color: str):
+    state_store.save_state("session", record.id, state, state_store.AI_TTL_SECONDS)
+    if not state.get("result"):
+        return
     record.moves = state.get("history", [])
     record.game_state = state
     apply_result(db, record, state, {player_color: record.player1_id})
     db.commit()
-    state_store.save_state("session", record.id, state, state_store.AI_TTL_SECONDS)
 
 
 def _reopen_record(db: Session, record: GameRecord, previous_state: dict) -> None:
@@ -206,6 +208,7 @@ def undo_session(game_code: str, body: GameIdBody, db: Session = Depends(get_db)
     except GameRuleError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _reopen_record(db, record, previous_state)
+    db.commit()
     _persist(db, record, state, _player_color(game_code))
     return ResponseModel(data={"state": state})
 

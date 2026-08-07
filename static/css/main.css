@@ -617,6 +617,8 @@ h1, h2, h3, h4, h5, h6 {
     margin: 0.25rem 0;
 }
 
+.captcha-image { width:140px; height:38px; border-left:1px solid var(--border-medium); object-fit:cover; }
+
 /* ── History ── */
 .history-title { font-size:1.55rem; }
 .history-table th { color:var(--text-muted); font:600 .7rem var(--font-mono); letter-spacing:.05em; text-transform:uppercase; }

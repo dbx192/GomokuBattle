@@ -5,10 +5,14 @@ from datetime import datetime
 class UserCreate(BaseModel):
     username: str
     password: str
+    captcha_id: str
+    captcha_answer: str
 
 class UserLogin(BaseModel):
     username: str
     password: str
+    captcha_id: str
+    captcha_answer: str
 
 class UserResponse(BaseModel):
     id: int

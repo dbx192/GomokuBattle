@@ -8,6 +8,7 @@ from services.external_ai import choose_go, choose_xiangqi, difficulty_profile, 
 from services.pikafish import board_to_fen
 import routers.games as games_router
 from routers.games import _ai_move
+from services.state_store import RedisStateStore
 
 
 def test_gomoku_win_and_illegal_move():
@@ -171,3 +172,31 @@ def test_ai_session_undo_removes_a_complete_player_ai_exchange(monkeypatch):
     response = games_router.undo_session("gomoku", games_router.GameIdBody(game_id=999), Database(), SimpleNamespace(id=1))
     assert response.data["state"]["history"] == []
     assert response.data["state"]["current_player"] == "black"
+
+
+def test_captcha_is_one_time_and_rate_limit_expires_in_local_store():
+    store = RedisStateStore()
+    store.enabled = False
+    store.client = None
+    store.save_captcha("test-captcha", "ABCDE")
+    assert store.consume_captcha("test-captcha") == "ABCDE"
+    assert store.consume_captcha("test-captcha") is None
+    assert store.check_rate_limit("test", "127.0.0.1", 1, 60)[0]
+    assert not store.check_rate_limit("test", "127.0.0.1", 1, 60)[0]
+
+
+def test_active_ai_state_is_not_committed_until_the_game_finishes(monkeypatch):
+    state = GomokuEngine().new_state()
+    record = SimpleNamespace(id=42, moves=None, game_state=None, player1_id=1)
+    saved = []
+
+    class Database:
+        committed = 0
+        def commit(self): self.committed += 1
+
+    db = Database()
+    monkeypatch.setattr(games_router.state_store, "save_state", lambda *args: saved.append(args))
+    games_router._persist(db, record, state, "black")
+    assert db.committed == 0
+    assert record.moves is None
+    assert saved[0][2] == state

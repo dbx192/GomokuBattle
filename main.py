@@ -10,6 +10,7 @@ from routers import auth, game, room, ranking, games, match_rooms
 from routers.room import manager, notify_room_expired
 from services.state_store import state_store
 from services.external_ai import warm_go_engine
+from config import REQUIRE_REDIS
 import asyncio
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -20,7 +21,9 @@ from models.room import Room
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    state_store.ping()
+    redis_available = state_store.ping()
+    if REQUIRE_REDIS and not redis_available:
+        raise RuntimeError("生产环境必须连接 Redis，拒绝使用进程内状态存储")
     manager.set_main_loop(asyncio.get_running_loop())
     asyncio.create_task(cleanup_expired_rooms())
     asyncio.create_task(asyncio.to_thread(warm_go_engine))

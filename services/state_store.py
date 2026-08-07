@@ -9,6 +9,7 @@ from config import (
     REDIS_URL,
     LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+    CAPTCHA_TTL_SECONDS,
 )
 
 
@@ -60,6 +61,12 @@ class RedisStateStore:
 
     def _login_limit_key(self, identifier: str) -> str:
         return f"gomoku:auth:login_limit:{identifier}"
+
+    def _captcha_key(self, captcha_id: str) -> str:
+        return f"gomoku:auth:captcha:{captcha_id}"
+
+    def _rate_limit_key(self, namespace: str, identifier: str) -> str:
+        return f"gomoku:rate:{namespace}:{identifier}"
 
     def save_state(self, namespace: str, entity_id: int, state: dict, ttl_seconds: int):
         payload = json.dumps(state, ensure_ascii=False)
@@ -150,6 +157,42 @@ class RedisStateStore:
             self._local_counters.pop(self._login_limit_key(identifier), None)
             return
         self.client.delete(self._login_limit_key(identifier))
+
+    def check_rate_limit(self, namespace: str, identifier: str, max_attempts: int, window_seconds: int) -> tuple[bool, int]:
+        key = self._rate_limit_key(namespace, identifier)
+        if not self.enabled or self.client is None:
+            now = time.time()
+            current, expires_at = self._local_counters.get(key, (0, now + window_seconds))
+            if expires_at <= now:
+                current, expires_at = 0, now + window_seconds
+            current += 1
+            self._local_counters[key] = (current, expires_at)
+            return current <= max_attempts, max(int(expires_at - now), 0)
+        current = self.client.incr(key)
+        if current == 1:
+            self.client.expire(key, window_seconds)
+        return current <= max_attempts, max(self.client.ttl(key), 0)
+
+    def reset_rate_limit(self, namespace: str, identifier: str):
+        key = self._rate_limit_key(namespace, identifier)
+        if not self.enabled or self.client is None:
+            self._local_counters.pop(key, None)
+            return
+        self.client.delete(key)
+
+    def save_captcha(self, captcha_id: str, answer: str):
+        if not self.enabled or self.client is None:
+            self._local_set(self._captcha_key(captcha_id), answer, CAPTCHA_TTL_SECONDS)
+            return
+        self.client.setex(self._captcha_key(captcha_id), CAPTCHA_TTL_SECONDS, answer)
+
+    def consume_captcha(self, captcha_id: str) -> Optional[str]:
+        key = self._captcha_key(captcha_id)
+        if not self.enabled or self.client is None:
+            answer = self._local_get(key)
+            self._local_delete(key)
+            return answer
+        return self.client.getdel(key)
 
 
 state_store = RedisStateStore()

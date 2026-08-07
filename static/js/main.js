@@ -117,6 +117,27 @@ function handlePostLogin() {
     }
 }
 
+function refreshCaptcha(formId) {
+    const $form = $('#' + formId);
+    const imageId = formId === 'loginForm' ? '#loginCaptchaImage' : '#registerCaptchaImage';
+    API.get('/api/auth/captcha')
+        .done(res => {
+            if (res.code !== 200) return;
+            $form.find('[name="captcha_id"]').val(res.data.captcha_id);
+            $form.find('[name="captcha_answer"]').val('');
+            $(imageId).attr('src', res.data.image);
+        })
+        .fail(xhr => toastr.error(xhr.responseJSON?.detail || '验证码加载失败'));
+}
+
+function finishLogin(data, message) {
+    localStorage.setItem('access_token', data.access_token);
+    $('#loginModal, #registerModal').modal('hide');
+    toastr.success(message);
+    showUserInfo(data.user);
+    setTimeout(handlePostLogin, 250);
+}
+
 $(function() {
     toastr.options = {
         closeButton: true,
@@ -162,6 +183,10 @@ $(function() {
 
     checkAuth();
 
+    $('.refresh-captcha').on('click', function() { refreshCaptcha(this.dataset.form); });
+    $('#loginModal').on('shown.bs.modal', () => refreshCaptcha('loginForm'));
+    $('#registerModal').on('shown.bs.modal', () => refreshCaptcha('registerForm'));
+
     $('#loginForm').on('submit', function(e) {
         e.preventDefault();
         const formData = $(this).serializeArray();
@@ -171,18 +196,13 @@ $(function() {
         API.post('/api/auth/login', data)
             .done(res => {
                 if (res.code === 200) {
-                    localStorage.setItem('access_token', res.data.access_token);
-                    $('#loginModal').modal('hide');
-                    toastr.success('登录成功');
-                    showUserInfo(res.data.user);
-
-                    // 延迟一下，等 modal 关闭动画结束再跳转，体验更顺
-                    setTimeout(handlePostLogin, 250);
+                    finishLogin(res.data, '登录成功');
                 }
             })
             .fail(xhr => {
                 const res = xhr.responseJSON;
                 toastr.error(res.detail || '登录失败');
+                refreshCaptcha('loginForm');
             });
     });
 
@@ -195,15 +215,14 @@ $(function() {
         API.post('/api/auth/register', data)
             .done(res => {
                 if (res.code === 201) {
-                    $('#registerModal').modal('hide');
-                    toastr.success('注册成功，请登录');
-                    $('#loginModal').modal('show');
+                    finishLogin(res.data, '注册成功，已自动登录');
                     $('#registerForm')[0].reset();
                 }
             })
             .fail(xhr => {
                 const res = xhr.responseJSON;
                 toastr.error(res.detail || '注册失败');
+                refreshCaptcha('registerForm');
             });
     });
 

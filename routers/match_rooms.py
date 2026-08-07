@@ -45,7 +45,7 @@ def _clock_state(code: str):
 
 
 def _serialize(room, record, state):
-    return {"room_id": room.id, "room_code": room.room_code, "status": room.status, "game_code": room.game_code, "state": state, "clocks": record.clocks, "time_control": room.time_control, "host_id": room.host_id, "guest_id": room.guest_id}
+    return {"room_id": room.id, "room_code": room.room_code, "status": room.status, "game_code": room.game_code, "state": state, "clocks": state.get("_clocks", record.clocks), "time_control": room.time_control, "host_id": room.host_id, "guest_id": room.guest_id}
 
 
 async def _broadcast(room_id: int, payload: dict):
@@ -57,18 +57,20 @@ async def _broadcast(room_id: int, payload: dict):
 
 
 def _persist(db, room, record, state):
+    state_store.save_state("match", room.id, state, state_store.ROOM_TTL_SECONDS)
+    if not state.get("result"):
+        return
     record.moves = state.get("history", [])
     record.game_state = state
+    record.clocks = state.get("_clocks", record.clocks)
     players = {COLORS[room.game_code][0]: room.host_id, COLORS[room.game_code][1]: room.guest_id}
     apply_result(db, record, state, players)
-    if state.get("result"):
-        room.status = "completed"
+    room.status = "completed"
     db.commit()
-    state_store.save_state("match", room.id, state, state_store.ROOM_TTL_SECONDS)
 
 
 def _consume_clock(record, state):
-    clocks = record.clocks or {}
+    clocks = dict(state.get("_clocks") or record.clocks or {})
     if clocks.get("mode") != "fischer": return None
     player = state["current_player"]
     elapsed = max(0, time.time() - clocks.get("started_at", time.time()))
@@ -77,7 +79,7 @@ def _consume_clock(record, state):
         return player
     clocks[player] += clocks["increment_seconds"]
     clocks["started_at"] = time.time()
-    record.clocks = clocks
+    state["_clocks"] = clocks
     return None
 
 
@@ -119,65 +121,74 @@ def join_room(room_code: str, db: Session = Depends(get_db), current_user: User 
 async def ws_room(websocket: WebSocket, room_id: int, token: str = ""):
     payload = decode_token(token)
     if not payload: await websocket.close(code=4001); return
-    user_id = int(payload["sub"]); db = SessionLocal()
+    user_id = int(payload["sub"])
     try:
-        room = db.query(Room).filter_by(id=room_id).first()
-        if not room or user_id not in {room.host_id, room.guest_id}: await websocket.close(code=4003); return
-        record = db.query(GameRecord).filter_by(id=room.game_record_id).first()
+        db = SessionLocal()
+        try:
+            room = db.query(Room).filter_by(id=room_id).first()
+            if not room or user_id not in {room.host_id, room.guest_id}:
+                await websocket.close(code=4003)
+                return
+            record = db.query(GameRecord).filter_by(id=room.game_record_id).first()
+            color = COLORS[room.game_code][0] if user_id == room.host_id else COLORS[room.game_code][1]
+            initial_payload = _serialize(room, record, _state(room, record))
+        finally:
+            db.close()
         await websocket.accept(); connections.setdefault(room_id, set()).add(websocket)
-        color = COLORS[room.game_code][0] if user_id == room.host_id else COLORS[room.game_code][1]
-        await websocket.send_json({"type": "role", "color": color, **_serialize(room, record, _state(room, record))})
+        await websocket.send_json({"type": "role", "color": color, **initial_payload})
         # A guest connection is the first event the host can observe after the
         # room leaves the waiting state, so synchronize both browsers now.
-        if room.status == "playing":
-            await _broadcast(room_id, {"type": "state", **_serialize(room, record, _state(room, record))})
+        if initial_payload["status"] == "playing":
+            await _broadcast(room_id, {"type": "state", **initial_payload})
         while True:
             message = await websocket.receive_json(); action = message.get("type")
-            # This is a long-lived session.  The guest joins through a separate
-            # database session, so expire cached rows before checking its status.
-            db.expire_all()
-            room = db.query(Room).filter_by(id=room_id).first(); record = db.query(GameRecord).filter_by(id=room.game_record_id).first(); state = _state(room, record)
             if action == "ping": await websocket.send_json({"type": "pong"}); continue
-            if room.status != "playing": continue
-            if action == "resign":
-                other = COLORS[room.game_code][1] if color == COLORS[room.game_code][0] else COLORS[room.game_code][0]
-                state["result"] = {"winner": other, "reason": "resignation"}
-            elif action == "move":
-                timed_out = _consume_clock(record, state)
-                if timed_out:
-                    other = COLORS[room.game_code][1] if timed_out == COLORS[room.game_code][0] else COLORS[room.game_code][0]
-                    state["result"] = {"winner": other, "reason": "timeout"}
-                else:
-                    try: state = get_engine(room.game_code).apply_move(state, message.get("move", {}), color)
+            db = SessionLocal()
+            try:
+                room = db.query(Room).filter_by(id=room_id).first()
+                record = db.query(GameRecord).filter_by(id=room.game_record_id).first()
+                state = _state(room, record)
+                if room.status != "playing": continue
+                if action == "resign":
+                    other = COLORS[room.game_code][1] if color == COLORS[room.game_code][0] else COLORS[room.game_code][0]
+                    state["result"] = {"winner": other, "reason": "resignation"}
+                elif action == "move":
+                    timed_out = _consume_clock(record, state)
+                    if timed_out:
+                        other = COLORS[room.game_code][1] if timed_out == COLORS[room.game_code][0] else COLORS[room.game_code][0]
+                        state["result"] = {"winner": other, "reason": "timeout"}
+                    else:
+                        try: state = get_engine(room.game_code).apply_move(state, message.get("move", {}), color)
+                        except GameRuleError as exc: await websocket.send_json({"type": "error", "message": str(exc)}); continue
+                elif action == "pass" and room.game_code == "go":
+                    try: state = get_engine("go").apply_move(state, {"pass": True}, color)
                     except GameRuleError as exc: await websocket.send_json({"type": "error", "message": str(exc)}); continue
-            elif action == "pass" and room.game_code == "go":
-                try: state = get_engine("go").apply_move(state, {"pass": True}, color)
-                except GameRuleError as exc: await websocket.send_json({"type": "error", "message": str(exc)}); continue
-            elif action == "dead_stones" and room.game_code == "go":
-                try: state = get_engine("go").mark_dead(state, color, message.get("points", []))
-                except GameRuleError as exc: await websocket.send_json({"type": "error", "message": str(exc)}); continue
-            elif action == "undo":
-                if state.get("phase") == "scoring" or not state.get("history"):
-                    await websocket.send_json({"type": "error", "message": "当前不能悔棋"}); continue
-                if not state_store.create_pending_undo(room.id, user_id):
-                    await websocket.send_json({"type": "error", "message": "已有悔棋请求"}); continue
-                await _broadcast(room.id, {"type": "undo_request", "from": color, "timeout_sec": 30}); continue
-            elif action == "undo_accept":
-                pending = state_store.get_pending_undo(room.id)
-                if not pending or pending.get("requester_id") == user_id:
-                    continue
-                try: state = get_engine(room.game_code).undo(state)
-                except GameRuleError as exc: await websocket.send_json({"type": "error", "message": str(exc)}); continue
-                state_store.clear_pending_undo(room.id)
-                await _broadcast(room.id, {"type": "undo_accepted"})
-            elif action == "undo_decline":
-                if state_store.get_pending_undo(room.id):
+                elif action == "dead_stones" and room.game_code == "go":
+                    try: state = get_engine("go").mark_dead(state, color, message.get("points", []))
+                    except GameRuleError as exc: await websocket.send_json({"type": "error", "message": str(exc)}); continue
+                elif action == "undo":
+                    if state.get("phase") == "scoring" or not state.get("history"):
+                        await websocket.send_json({"type": "error", "message": "当前不能悔棋"}); continue
+                    if not state_store.create_pending_undo(room.id, user_id):
+                        await websocket.send_json({"type": "error", "message": "已有悔棋请求"}); continue
+                    await _broadcast(room.id, {"type": "undo_request", "from": color, "timeout_sec": 30}); continue
+                elif action == "undo_accept":
+                    pending = state_store.get_pending_undo(room.id)
+                    if not pending or pending.get("requester_id") == user_id: continue
+                    try: state = get_engine(room.game_code).undo(state)
+                    except GameRuleError as exc: await websocket.send_json({"type": "error", "message": str(exc)}); continue
                     state_store.clear_pending_undo(room.id)
-                    await _broadcast(room.id, {"type": "undo_declined"})
-                continue
-            else: continue
-            _persist(db, room, record, state)
-            await _broadcast(room_id, {"type": "state", **_serialize(room, record, state)})
+                    await _broadcast(room.id, {"type": "undo_accepted"})
+                elif action == "undo_decline":
+                    if state_store.get_pending_undo(room.id):
+                        state_store.clear_pending_undo(room.id)
+                        await _broadcast(room.id, {"type": "undo_declined"})
+                    continue
+                else: continue
+                _persist(db, room, record, state)
+                await _broadcast(room_id, {"type": "state", **_serialize(room, record, state)})
+            finally:
+                db.close()
     except WebSocketDisconnect: pass
     finally:
-        connections.get(room_id, set()).discard(websocket); db.close()
+        connections.get(room_id, set()).discard(websocket)

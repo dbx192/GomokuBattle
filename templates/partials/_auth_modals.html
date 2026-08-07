@@ -26,6 +26,15 @@
                         <input type="password" name="password" class="form-control"
                                placeholder="请输入密码" required autocomplete="current-password">
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label">验证码</label>
+                        <div class="input-group">
+                            <input type="text" name="captcha_answer" class="form-control" placeholder="输入验证码" required maxlength="5" autocomplete="off">
+                            <input type="hidden" name="captcha_id">
+                            <img id="loginCaptchaImage" class="captcha-image" alt="验证码">
+                            <button class="btn btn-outline-light refresh-captcha" type="button" data-form="loginForm" title="刷新验证码"><i class="bi bi-arrow-clockwise"></i></button>
+                        </div>
+                    </div>
                     <button type="submit" class="btn btn-primary w-100 mt-2">
                         <i class="bi bi-box-arrow-in-right"></i> 登录
                     </button>
@@ -62,6 +71,15 @@
                         <input type="password" name="password" class="form-control"
                                placeholder="请输入密码（至少6位）" required minlength="6"
                                autocomplete="new-password">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">验证码</label>
+                        <div class="input-group">
+                            <input type="text" name="captcha_answer" class="form-control" placeholder="输入验证码" required maxlength="5" autocomplete="off">
+                            <input type="hidden" name="captcha_id">
+                            <img id="registerCaptchaImage" class="captcha-image" alt="验证码">
+                            <button class="btn btn-outline-light refresh-captcha" type="button" data-form="registerForm" title="刷新验证码"><i class="bi bi-arrow-clockwise"></i></button>
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-success w-100 mt-2">
                         <i class="bi bi-person-plus"></i> 注册
