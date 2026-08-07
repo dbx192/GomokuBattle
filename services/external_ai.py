@@ -13,6 +13,7 @@ import subprocess
 import threading
 import time
 import platform
+from collections import deque
 from queue import Empty, Queue
 from pathlib import Path
 
@@ -165,6 +166,8 @@ class _PersistentGtp:
         self._lock = threading.Lock()
         self._process: subprocess.Popen | None = None
         self._output: Queue[str | None] = Queue()
+        self._output_tail: deque[str] = deque(maxlen=12)
+        self._stderr_tail: deque[str] = deque(maxlen=12)
         self._command: tuple[str, ...] | None = None
         self._cwd: str | None = None
 
@@ -176,6 +179,8 @@ class _PersistentGtp:
         self._command = None
         self._cwd = None
         self._output = Queue()
+        self._output_tail.clear()
+        self._stderr_tail.clear()
 
     def _start(self, command: list[str], cwd: str | None):
         process_command = command
@@ -186,46 +191,67 @@ class _PersistentGtp:
                 candidate = Path(argument)
                 windows_command.append(os.path.relpath(candidate, launch_dir) if candidate.is_absolute() and candidate.is_file() else argument)
             process_command = ["script", "-qfec", shlex.join(windows_command), "/dev/null"]
-        self._process = subprocess.Popen(process_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd=cwd)
-        assert self._process.stdin is not None and self._process.stdout is not None
+        process = subprocess.Popen(process_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd)
+        assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+        self._process = process
         self._command, self._cwd = tuple(command), cwd
 
         def read_output():
-            assert self._process and self._process.stdout
-            for line in self._process.stdout:
+            for line in process.stdout:
+                self._output_tail.append(line.strip())
                 self._output.put(line)
             self._output.put(None)
 
+        def read_stderr():
+            for line in process.stderr:
+                self._stderr_tail.append(line.strip())
+
         threading.Thread(target=read_output, daemon=True).start()
+        threading.Thread(target=read_stderr, daemon=True).start()
+
+    def _exit_error(self) -> AIEngineError:
+        code = self._process.poll() if self._process else None
+        detail = " ".join(self._stderr_tail or self._output_tail).strip()
+        suffix = f"（退出码 {code}{'：' + detail if detail else ''}）"
+        return AIEngineError("KataGo 意外退出" + suffix)
 
     def request(self, command: list[str], commands: list[str], timeout: float, cwd: str, response: callable) -> str:
         with self._lock:
-            if self._process is None or self._process.poll() is not None or self._command != tuple(command) or self._cwd != cwd:
-                self._stop()
+            for attempt in range(2):
+                if self._process is None or self._process.poll() is not None or self._command != tuple(command) or self._cwd != cwd:
+                    self._stop()
+                    try:
+                        self._start(command, cwd)
+                    except (OSError, subprocess.SubprocessError) as exc:
+                        self._stop()
+                        raise AIEngineError("KataGo 引擎启动失败") from exc
                 try:
-                    self._start(command, cwd)
+                    assert self._process and self._process.stdin
+                    self._process.stdin.write("\n".join(commands) + "\n")
+                    self._process.stdin.flush()
+                    output, deadline, exited = [], time.monotonic() + timeout, False
+                    while time.monotonic() < deadline:
+                        try:
+                            line = self._output.get(timeout=max(0.01, deadline - time.monotonic()))
+                        except Empty:
+                            break
+                        if line is None:
+                            error = self._exit_error()
+                            self._stop()
+                            if attempt == 0:
+                                exited = True
+                                break
+                            raise error
+                        output.append(line)
+                        if response(line):
+                            return "".join(output)
+                    if exited:
+                        continue
+                    raise AIEngineError("KataGo 思考超时")
                 except (OSError, subprocess.SubprocessError) as exc:
                     self._stop()
-                    raise AIEngineError("KataGo 引擎启动失败") from exc
-            try:
-                assert self._process and self._process.stdin
-                self._process.stdin.write("\n".join(commands) + "\n")
-                self._process.stdin.flush()
-                output, deadline = [], time.monotonic() + timeout
-                while time.monotonic() < deadline:
-                    try:
-                        line = self._output.get(timeout=max(0.01, deadline - time.monotonic()))
-                    except Empty:
-                        break
-                    if line is None:
-                        raise AIEngineError("KataGo 意外退出")
-                    output.append(line)
-                    if response(line):
-                        return "".join(output)
-                raise AIEngineError("KataGo 思考超时")
-            except (OSError, subprocess.SubprocessError) as exc:
-                self._stop()
-                raise AIEngineError("KataGo 引擎通信失败") from exc
+                    raise AIEngineError("KataGo 引擎通信失败") from exc
+            raise AIEngineError("KataGo 意外退出")
 
 
 _KATAGO_GTP = _PersistentGtp()

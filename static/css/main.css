@@ -618,6 +618,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .captcha-image { width:140px; height:38px; border-left:1px solid var(--border-medium); object-fit:cover; }
+.realtime-room-list .room-create-column,
+.realtime-room-list .room-history-tab { display:none; }
 
 /* ── History ── */
 .history-title { font-size:1.55rem; }

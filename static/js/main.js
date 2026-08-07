@@ -63,6 +63,8 @@ function showUserInfo(user) {
                 <i class="bi bi-person-circle"></i> ${user.username}
             </a>
             <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="/history"><i class="bi bi-clock-history"></i> 历史对局</a></li>
+                <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item" href="#" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a></li>
             </ul>
         </li>

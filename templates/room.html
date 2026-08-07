@@ -9,11 +9,11 @@
 <div class="container py-4">
 
     {# ═══════════ 大厅视图 ═══════════ #}
-    <div id="lobbyView" class="page-section">
+    <div id="lobbyView" class="page-section realtime-room-list">
         <div class="row g-4">
 
             {# ── 左侧：创建 / 加入房间 ── #}
-            <div class="col-lg-4">
+            <div class="col-lg-4 room-create-column">
                 <div class="card mb-3">
                     <div class="card-header"><i class="bi bi-plus-circle"></i> 创建房间</div>
                     <div class="card-body">
@@ -54,11 +54,11 @@
             </div>
 
             {# ── 右侧：等待中 / 历史 Tab ── #}
-            <div class="col-lg-8">
+            <div class="col-lg-12">
                 <div class="card lobby-tabs-card">
                     <div class="card-header p-0">
                         <ul class="nav nav-tabs card-header-tabs" id="roomTabs" role="tablist">
-                            <li class="nav-item" role="presentation">
+                            <li class="nav-item room-history-tab" role="presentation">
                                 <button class="nav-link active" id="tab-active-btn"
                                         data-bs-toggle="tab" data-bs-target="#tab-active" type="button">
                                     <i class="bi bi-broadcast"></i>
@@ -112,7 +112,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="tab-pane fade" id="tab-history" role="tabpanel">
+                            <div class="tab-pane fade room-history-tab" id="tab-history" role="tabpanel">
                                 <div class="tab-toolbar">
                                     <small class="text-muted">
                                         <i class="bi bi-info-circle"></i> 我参与过的对局

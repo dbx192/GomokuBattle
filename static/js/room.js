@@ -125,8 +125,6 @@ function checkAuth() {
                     return;
                 }
 
-                restoreCurrentRoom();
-
                 const roomCode = urlParams.get('code');
                 if (roomCode && !roomId) {
                     $('#joinRoomCode').val(roomCode.toUpperCase());
@@ -151,7 +149,7 @@ function showAuthNav(user) {
                     <i class="bi bi-person-circle"></i> ${user.username}
                 </a>
                 <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item" href="/"><i class="bi bi-house"></i> 首页</a></li>
+                    <li><a class="dropdown-item" href="/history"><i class="bi bi-clock-history"></i> 历史对局</a></li>
                     <li><hr class="dropdown-divider"></li>
                     <li><a class="dropdown-item" href="#" id="logoutBtn"><i class="bi bi-box-arrow-right"></i> 退出</a></li>
                 </ul>
@@ -166,8 +164,8 @@ function showAuthNav(user) {
     } else {
         $nav.html(`
             <li class="nav-item">
-                <a class="nav-link" href="/">
-                    <i class="bi bi-box-arrow-in-right"></i> 前往登录
+                <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#loginModal">
+                    <i class="bi bi-person-circle"></i> 登录
                 </a>
             </li>
         `);
@@ -491,6 +489,16 @@ function watchRoom(roomCode) {
         });
 }
 
+function resumeRoom(roomCode) {
+    if (!isLoggedIn()) { showLoginModal(); return; }
+    const code = String(roomCode || '').trim().toUpperCase();
+    API.post('/api/room/join/' + encodeURIComponent(code))
+        .done(res => {
+            if (res.code === 200) enterRoomSession({...res.data, room_code: res.data.room_code || code});
+        })
+        .fail(xhr => toastr.error(xhr.responseJSON?.detail || '无法恢复房间'));
+}
+
 function loadRoomList() {
     API.get('/api/room/list')
         .done(res => {
@@ -695,9 +703,11 @@ function renderPlayingRoomList(rooms) {
     }
 
     container.empty();
+    const myId = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').id; } catch (_) { return null; } })();
     list.forEach(room => {
         const host = room.host_name || '匿名';
         const guest = room.guest_name || '匿名';
+        const isMine = myId && (room.host_id === myId || room.guest_id === myId);
         container.append(`
             <a href="#" class="room-row is-clickable playing-room-item" data-code="${room.room_code}">
                 <div class="room-row-main">
@@ -709,7 +719,7 @@ function renderPlayingRoomList(rooms) {
                     </div>
                 </div>
                 <div class="room-row-side">
-                    <span class="badge bg-primary"><i class="bi bi-eye"></i> 观看</span>
+                    <span class="badge ${isMine ? 'bg-success' : 'bg-primary'}"><i class="bi ${isMine ? 'bi-play-fill' : 'bi-eye'}"></i> ${isMine ? '继续对局' : '观看'}</span>
                 </div>
             </a>
         `);
@@ -717,7 +727,9 @@ function renderPlayingRoomList(rooms) {
 
     $('.playing-room-item').off('click').on('click', function(e) {
         e.preventDefault();
-        watchRoom($(this).data('code'));
+        const room = list.find(item => item.room_code === $(this).data('code'));
+        if (room && myId && (room.host_id === myId || room.guest_id === myId)) resumeRoom(room.room_code);
+        else watchRoom($(this).data('code'));
     });
 }
 

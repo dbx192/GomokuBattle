@@ -25,11 +25,14 @@
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link{% if active == 'history' %} active{% endif %}"
-                       href="/history">
-                        <i class="bi bi-clock-history"></i> 历史对局
+                    <a class="nav-link{% if active == 'room' %} active{% endif %}"
+                       href="/room">
+                        <i class="bi bi-broadcast"></i> 实时房间
                     </a>
                 </li>
+            </ul>
+            <ul class="navbar-nav ms-auto" id="authNav">
+                <li class="nav-item"><a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#loginModal"><i class="bi bi-person-circle"></i> 登录</a></li>
             </ul>
         </div>
     </div>
