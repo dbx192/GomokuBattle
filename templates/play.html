@@ -9,6 +9,15 @@
     </header>
     <main class="play-layout">
         <aside class="play-sidebar">
+            <section class="play-account" id="userInfo" style="display:none;">
+                <div class="play-account-heading"><i class="bi bi-person-circle"></i> 个人中心</div>
+                <div class="play-account-user"><span class="user-avatar-placeholder" id="userAvatar">?</span><div><strong id="userName">-</strong><span id="userRank">新手</span></div></div>
+                <div class="play-account-stats"><span><b id="userWins">0</b>胜</span><span><b id="userLosses">0</b>负</span><span><b id="userWinRate">0%</b>胜率</span></div>
+            </section>
+            <section class="play-account play-account-login" id="loginPromptCard">
+                <div class="play-account-heading"><i class="bi bi-person-circle"></i> 个人中心</div>
+                <button class="btn btn-primary w-100" data-bs-toggle="modal" data-bs-target="#loginModal"><i class="bi bi-box-arrow-in-right"></i> 登录 / 注册</button>
+            </section>
             <div class="play-actions">
                 <div class="mode-switch" role="group"><button class="mode-choice is-active" data-mode="ai"><i class="bi bi-cpu"></i> 人机</button><button class="mode-choice" data-mode="room"><i class="bi bi-people"></i> 房间</button></div>
                 <label class="ai-difficulty" id="difficultyControl"><span>AI 难度</span><select id="difficultySelect" class="form-select form-select-sm"><option value="easy">简单</option><option value="normal" selected>普通</option><option value="hard">困难</option></select></label>
@@ -22,7 +31,7 @@
             <div class="sidebar-actions"><button id="undoBtn" class="btn btn-subtle" disabled><i class="bi bi-arrow-counterclockwise"></i> 悔棋</button><button id="passBtn" class="btn btn-subtle d-none"><i class="bi bi-skip-forward"></i> 停一手</button><button id="resignBtn" class="btn btn-danger-subtle" disabled><i class="bi bi-flag"></i> 认输</button></div>
             <p class="rules-note"><i class="bi bi-shield-check"></i> 服务端规则校验<br><i class="bi bi-wifi"></i> 实时状态自动同步</p>
         </aside>
-        <section class="board-column"><div class="board-frame"><div class="board-caption"><span id="boardLabel">棋盘</span><span class="live-indicator"><i></i> LIVE</span></div><canvas id="boardCanvas" width="720" height="720" class="game-board-canvas"></canvas></div><p id="moveHint" class="move-hint">点击棋盘落子</p></section>
+        <section class="board-column"><div class="board-frame"><div class="board-caption"><span id="boardLabel">棋盘</span><span class="live-indicator"><i></i> LIVE</span></div><canvas id="boardCanvas" width="720" height="{% if game_code == 'xiangqi' %}798{% else %}720{% endif %}" class="game-board-canvas{% if game_code == 'xiangqi' %} xiangqi-board{% endif %}"></canvas></div><p id="moveHint" class="move-hint">点击棋盘落子</p></section>
     </main>
 </div>
 <div class="modal fade" id="gameResultModal" tabindex="-1" aria-labelledby="gameResultTitle" aria-hidden="true">
@@ -32,4 +41,4 @@
     </div></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/play.js?v=20260814"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/play.js?v=20260816"></script>{% endblock %}

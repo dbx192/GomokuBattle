@@ -142,7 +142,7 @@ function clickBoard(event) {
     const rect = canvas.getBoundingClientRect(), x = (event.clientX - rect.left) * canvas.width / rect.width, y = (event.clientY - rect.top) * canvas.height / rect.height;
     if (GAME === 'gomoku' || GAME === 'go') { const n = GAME === 'go' ? 19 : 15, p = GAME === 'go' ? 32 : 42, cell = (canvas.width - p * 2) / (n - 1); const row = Math.round((y-p)/cell), col = Math.round((x-p)/cell); if (row>=0&&row<n&&col>=0&&col<n) sendAction('move',{row,col}); return; }
     if (GAME === 'xiangqi') {
-        const p=48, cellX=(canvas.width-p*2)/8, cellY=(canvas.height-p*2)/9, row=Math.round((y-p)/cellY), col=Math.round((x-p)/cellX);
+        const p=48, cell=(canvas.width-p*2)/8, row=Math.round((y-p)/cell), col=Math.round((x-p)/cell);
         if(row<0||row>9||col<0||col>8)return;
         const piece = state.board[row][col];
         const isOwnPiece = piece !== '0' && (playerColor === 'red' ? piece === piece.toUpperCase() : piece === piece.toLowerCase());
@@ -207,13 +207,13 @@ function drawChess() {
     if(selected){const c=selected.charCodeAt(0)-97,r=8-Number(selected[1]);ctx.strokeStyle='#d9a85f';ctx.lineWidth=5;ctx.strokeRect(p+c*cell+3,p+r*cell+3,cell-6,cell-6);}
 }
 function drawXiangqi() {
-    const p=48, cellX=(720-p*2)/8, cellY=(720-p*2)/9;
-    const wood=ctx.createLinearGradient(0,0,0,720);wood.addColorStop(0,'#e1bd82');wood.addColorStop(1,'#b47c47');ctx.fillStyle=wood;ctx.fillRect(0,0,720,720);ctx.strokeStyle='rgba(54,31,17,.78)';ctx.lineWidth=2;
-    for(let r=0;r<10;r++){ctx.beginPath();ctx.moveTo(p,p+r*cellY);ctx.lineTo(p+8*cellX,p+r*cellY);ctx.stroke();}
-    for(let c=0;c<9;c++){ctx.beginPath();ctx.moveTo(p+c*cellX,p);ctx.lineTo(p+c*cellX,p+4*cellY);ctx.moveTo(p+c*cellX,p+5*cellY);ctx.lineTo(p+c*cellX,p+9*cellY);ctx.stroke();}
-    ctx.fillStyle='rgba(85,49,25,.72)';ctx.font='28px "Noto Serif SC",serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('楚 河',p+2*cellX+cellX/2,p+4.5*cellY);ctx.fillText('汉 界',p+5*cellX+cellX/2,p+4.5*cellY);
-    ctx.beginPath();ctx.moveTo(p+3*cellX,p);ctx.lineTo(p+5*cellX,p+2*cellY);ctx.moveTo(p+5*cellX,p);ctx.lineTo(p+3*cellX,p+2*cellY);ctx.moveTo(p+3*cellX,p+7*cellY);ctx.lineTo(p+5*cellX,p+9*cellY);ctx.moveTo(p+5*cellX,p+7*cellY);ctx.lineTo(p+3*cellX,p+9*cellY);ctx.stroke();
-    if(!state)return;const chars={r:'车',h:'马',e:'相',a:'仕',k:'帅',c:'炮',p:'兵'};const last=recentMove();if(last&&Number.isInteger(last.from_row)&&Number.isInteger(last.to_row)){markRecentPoint(p+last.from_col*cellX,p+last.from_row*cellY,34);markRecentPoint(p+last.to_col*cellX,p+last.to_row*cellY,34);}state.board.forEach((row,r)=>row.forEach((piece,c)=>{if(piece==='0')return;const x=p+c*cellX,y=p+r*cellY;ctx.save();ctx.shadowColor='rgba(39,20,8,.4)';ctx.shadowBlur=6;ctx.shadowOffsetY=3;const g=ctx.createRadialGradient(x-9,y-10,3,x,y,29);if(piece===piece.toUpperCase()){g.addColorStop(0,'#ffe7bd');g.addColorStop(1,'#c8864f');}else{g.addColorStop(0,'#fbf0d9');g.addColorStop(1,'#bca789');}ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,30,0,Math.PI*2);ctx.fill();ctx.strokeStyle=piece===piece.toUpperCase()?'#a52e2b':'#29251f';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle=piece===piece.toUpperCase()?'#a52e2b':'#29251f';ctx.font='30px "Noto Serif SC",serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(chars[piece.toLowerCase()],x,y+1);ctx.restore();}));
-    if(selected){ctx.strokeStyle='#f0bf70';ctx.lineWidth=4;ctx.strokeRect(p+selected.col*cellX-35,p+selected.row*cellY-35,70,70);}
+    const p=48, cell=(canvas.width-p*2)/8, width=canvas.width, height=canvas.height;
+    const wood=ctx.createLinearGradient(0,0,0,height);wood.addColorStop(0,'#e1bd82');wood.addColorStop(1,'#b47c47');ctx.fillStyle=wood;ctx.fillRect(0,0,width,height);ctx.strokeStyle='rgba(54,31,17,.78)';ctx.lineWidth=2;
+    for(let r=0;r<10;r++){ctx.beginPath();ctx.moveTo(p,p+r*cell);ctx.lineTo(p+8*cell,p+r*cell);ctx.stroke();}
+    for(let c=0;c<9;c++){ctx.beginPath();ctx.moveTo(p+c*cell,p);ctx.lineTo(p+c*cell,p+4*cell);ctx.moveTo(p+c*cell,p+5*cell);ctx.lineTo(p+c*cell,p+9*cell);ctx.stroke();}
+    ctx.fillStyle='rgba(85,49,25,.72)';ctx.font='28px "Noto Serif SC",serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('楚 河',p+2.5*cell,p+4.5*cell);ctx.fillText('汉 界',p+5.5*cell,p+4.5*cell);
+    ctx.beginPath();ctx.moveTo(p+3*cell,p);ctx.lineTo(p+5*cell,p+2*cell);ctx.moveTo(p+5*cell,p);ctx.lineTo(p+3*cell,p+2*cell);ctx.moveTo(p+3*cell,p+7*cell);ctx.lineTo(p+5*cell,p+9*cell);ctx.moveTo(p+5*cell,p+7*cell);ctx.lineTo(p+3*cell,p+9*cell);ctx.stroke();
+    if(!state)return;const chars={r:'车',h:'马',e:'相',a:'仕',k:'帅',c:'炮',p:'兵'};const last=recentMove();if(last&&Number.isInteger(last.from_row)&&Number.isInteger(last.to_row)){markRecentPoint(p+last.from_col*cell,p+last.from_row*cell,34);markRecentPoint(p+last.to_col*cell,p+last.to_row*cell,34);}state.board.forEach((row,r)=>row.forEach((piece,c)=>{if(piece==='0')return;const x=p+c*cell,y=p+r*cell;ctx.save();ctx.shadowColor='rgba(39,20,8,.4)';ctx.shadowBlur=6;ctx.shadowOffsetY=3;const g=ctx.createRadialGradient(x-9,y-10,3,x,y,29);if(piece===piece.toUpperCase()){g.addColorStop(0,'#ffe7bd');g.addColorStop(1,'#c8864f');}else{g.addColorStop(0,'#fbf0d9');g.addColorStop(1,'#bca789');}ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,30,0,Math.PI*2);ctx.fill();ctx.strokeStyle=piece===piece.toUpperCase()?'#a52e2b':'#29251f';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle=piece===piece.toUpperCase()?'#a52e2b':'#29251f';ctx.font='30px "Noto Serif SC",serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(chars[piece.toLowerCase()],x,y+1);ctx.restore();}));
+    if(selected){ctx.strokeStyle='#f0bf70';ctx.lineWidth=4;ctx.strokeRect(p+selected.col*cell-35,p+selected.row*cell-35,70,70);}
 }
 function renderClock(){if(!room?.clocks)return;const c=room.clocks;$('#clock').text(c.mode==='fischer'?`${Math.ceil(c[colors()[0]]||0)}s / ${Math.ceil(c[colors()[1]]||0)}s`:`每步 ${c.seconds}s`)}
