@@ -13,7 +13,6 @@ const names = {gomoku: '五子棋', go: '围棋', xiangqi: '中国象棋', chess
 $(function () {
     document.getElementById('gameTitle').textContent = names[GAME];
     document.getElementById('gameMark').textContent = {gomoku: '五', go: '围', xiangqi: '象', chess: '♞'}[GAME];
-    document.getElementById('boardLabel').textContent = names[GAME];
     API.get('/api/games')
         .done(response => { catalog = Object.fromEntries(response.data.map(item => [item.code, item])); })
         .fail(() => { catalog = {}; toastr.warning('棋种目录暂时不可用，仍可开始对局'); });
@@ -25,6 +24,7 @@ $(function () {
     $('.mode-choice').on('click', function () { mode = this.dataset.mode; $('.mode-choice').removeClass('is-active'); $(this).addClass('is-active'); updateMode(); });
     canvas.addEventListener('click', clickBoard);
     updateMode(); draw();
+    joinFromInviteLink();
 });
 
 function updateMode() {
@@ -54,11 +54,22 @@ function join() {
     API.post(`/api/match-rooms/${code}/join`, {}).done(res => { room = res.data; playerColor = room.host_id === currentUserId() ? colors()[0] : colors()[1]; activateRoom(); }).fail(showError);
 }
 
+function joinFromInviteLink() {
+    const code = new URLSearchParams(location.search).get('room')?.trim().toUpperCase();
+    if (!code) return;
+    mode = 'room';
+    $('.mode-choice').removeClass('is-active');
+    $('.mode-choice[data-mode="room"]').addClass('is-active');
+    updateMode();
+    $('#roomCodeInput').val(code);
+    if (needAuth()) join();
+}
+
 function currentUserId() { try { return JSON.parse(localStorage.getItem('user') || '{}').id; } catch (_) { return null; } }
 function colors() { return GAME === 'xiangqi' ? ['red','black'] : ['black','white']; }
 function active() {
     const isTurn = state && state.current_player === playerColor && !state.result;
-    $('#gameStatus').text(state?.ai_error ? state.ai_error : (state?.result ? `对局结束 · ${state.result.reason}` : (isTurn ? '轮到你落子' : 'AI 正在思考')));
+    $('#gameStatus').text(state?.ai_error ? state.ai_error : (state?.result ? `对局结束 · ${state.result.reason}` : (isTurn ? '轮到你落子' : (room ? '等待对手落子' : 'AI 正在思考'))));
     $('#turnPill').text(state?.result ? '已结束' : (isTurn ? '你的回合' : '对手回合')).toggleClass('is-your-turn', !!isTurn);
     $('#playerSide').text(playerColor || '等待开始');
     $('#resignBtn').prop('disabled', !state || !!state.result);
@@ -77,7 +88,10 @@ function monitorAiTurn() {
     }).fail(showError), 300);
 }
 function activateRoom() {
-    state = room.state; active(); $('#roomInfo').removeClass('d-none').html(`<span>房间码</span><strong>${room.room_code}</strong><small>分享给好友加入</small>`);
+    state = room.state;
+    active();
+    $('#roomInfo').removeClass('d-none').html(`<span>房间码</span><button type="button" id="copyRoomLink" class="room-code-button" title="复制邀请链接">${room.room_code}</button><small>点击房间码复制邀请链接</small>`);
+    $('#copyRoomLink').on('click', copyRoomLink);
     const token = localStorage.getItem('access_token'); const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     socket = new WebSocket(`${proto}//${location.host}/api/match-rooms/${room.room_id}/ws?token=${encodeURIComponent(token)}`);
     socket.onmessage = event => {
@@ -97,8 +111,32 @@ function activateRoom() {
     socket.onclose = () => { if (room && room.status === 'playing') $('#gameStatus').text('连接已关闭，请刷新重连'); };
 }
 
+async function copyRoomLink() {
+    if (!room?.room_code) return;
+    const inviteUrl = new URL(`/play/${GAME}`, location.origin);
+    inviteUrl.searchParams.set('room', room.room_code);
+    const text = inviteUrl.toString();
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (_) {
+        const input = document.createElement('textarea');
+        input.value = text;
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        input.remove();
+    }
+    toastr.success('邀请链接已复制');
+}
+
 function sendAction(type, move) {
-    if (room) { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({type, move})); return; }
+    if (room) {
+        if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({type, move}));
+        else toastr.warning('房间连接尚未就绪，请稍候重试');
+        return;
+    }
     if (!sessionId) return;
     if (type === 'move') API.post(`/api/games/${GAME}/sessions/move`, {game_id: sessionId, move}).done(res => { state = res.data.state; active(); monitorAiTurn(); }).fail(showError);
     else if (type === 'pass') API.post(`/api/games/go/sessions/pass`, {game_id: sessionId}).done(res => { state = res.data.state; active(); monitorAiTurn(); }).fail(showError);

@@ -127,8 +127,15 @@ async def ws_room(websocket: WebSocket, room_id: int, token: str = ""):
         await websocket.accept(); connections.setdefault(room_id, set()).add(websocket)
         color = COLORS[room.game_code][0] if user_id == room.host_id else COLORS[room.game_code][1]
         await websocket.send_json({"type": "role", "color": color, **_serialize(room, record, _state(room, record))})
+        # A guest connection is the first event the host can observe after the
+        # room leaves the waiting state, so synchronize both browsers now.
+        if room.status == "playing":
+            await _broadcast(room_id, {"type": "state", **_serialize(room, record, _state(room, record))})
         while True:
             message = await websocket.receive_json(); action = message.get("type")
+            # This is a long-lived session.  The guest joins through a separate
+            # database session, so expire cached rows before checking its status.
+            db.expire_all()
             room = db.query(Room).filter_by(id=room_id).first(); record = db.query(GameRecord).filter_by(id=room.game_record_id).first(); state = _state(room, record)
             if action == "ping": await websocket.send_json({"type": "pong"}); continue
             if room.status != "playing": continue

@@ -11,8 +11,7 @@
         <aside class="play-sidebar">
             <section class="play-account" id="userInfo" style="display:none;">
                 <div class="play-account-heading"><i class="bi bi-person-circle"></i> 个人中心</div>
-                <div class="play-account-user"><span class="user-avatar-placeholder" id="userAvatar">?</span><div><strong id="userName">-</strong><span id="userRank">新手</span></div></div>
-                <div class="play-account-stats"><span><b id="userWins">0</b>胜</span><span><b id="userLosses">0</b>负</span><span><b id="userWinRate">0%</b>胜率</span></div>
+                <div class="play-account-user"><span class="user-avatar-placeholder" id="userAvatar">?</span><div><strong id="userName">-</strong><span id="userRank">新手</span><div class="play-account-stats"><span><b id="userWins">0</b>胜</span><span><b id="userLosses">0</b>负</span><span><b id="userWinRate">0%</b>胜率</span></div></div></div>
             </section>
             <section class="play-account play-account-login" id="loginPromptCard">
                 <div class="play-account-heading"><i class="bi bi-person-circle"></i> 个人中心</div>
@@ -31,7 +30,7 @@
             <div class="sidebar-actions"><button id="undoBtn" class="btn btn-subtle" disabled><i class="bi bi-arrow-counterclockwise"></i> 悔棋</button><button id="passBtn" class="btn btn-subtle d-none"><i class="bi bi-skip-forward"></i> 停一手</button><button id="resignBtn" class="btn btn-danger-subtle" disabled><i class="bi bi-flag"></i> 认输</button></div>
             <p class="rules-note"><i class="bi bi-shield-check"></i> 服务端规则校验<br><i class="bi bi-wifi"></i> 实时状态自动同步</p>
         </aside>
-        <section class="board-column"><div class="board-frame"><div class="board-caption"><span id="boardLabel">棋盘</span><span class="live-indicator"><i></i> LIVE</span></div><canvas id="boardCanvas" width="720" height="{% if game_code == 'xiangqi' %}798{% else %}720{% endif %}" class="game-board-canvas{% if game_code == 'xiangqi' %} xiangqi-board{% endif %}"></canvas></div><p id="moveHint" class="move-hint">点击棋盘落子</p></section>
+        <section class="board-column"><div class="board-frame"><canvas id="boardCanvas" width="720" height="{% if game_code == 'xiangqi' %}798{% else %}720{% endif %}" class="game-board-canvas{% if game_code == 'xiangqi' %} xiangqi-board{% endif %}"></canvas></div></section>
     </main>
 </div>
 <div class="modal fade" id="gameResultModal" tabindex="-1" aria-labelledby="gameResultTitle" aria-hidden="true">
@@ -41,4 +40,4 @@
     </div></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/play.js?v=20260816"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/play.js?v=20260818"></script>{% endblock %}
