@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% set active = 'history' %}
+
+{% block content %}
+<div class="container py-4 page-section history-page">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="history-title mb-0"><i class="bi bi-clock-history text-gold"></i> 历史对局</h1>
+        <button id="refreshHistoryBtn" class="btn btn-outline-light btn-sm" title="刷新"><i class="bi bi-arrow-clockwise"></i></button>
+    </div>
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 history-table">
+                    <thead><tr><th>棋种</th><th>对手</th><th>结果</th><th>耗时</th><th>结束时间</th><th></th></tr></thead>
+                    <tbody id="historyTable"><tr><td colspan="6" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm"></div></td></tr></tbody>
+                </table>
+            </div>
+            <div id="historyEmpty" class="text-center text-muted py-5 d-none"><i class="bi bi-inbox" style="font-size:2rem;"></i><p class="mt-2 mb-0">暂无已结束的对局</p></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="replayModal" tabindex="-1" aria-labelledby="replayTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl"><div class="modal-content">
+        <div class="modal-header"><div><h5 class="modal-title" id="replayTitle">终局棋盘</h5><small class="text-muted" id="replayMeta"></small></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+        <div class="modal-body replay-body"><canvas id="replayCanvas" class="replay-canvas" width="720" height="720"></canvas></div>
+    </div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="/static/js/history.js?v=20260819"></script>{% endblock %}

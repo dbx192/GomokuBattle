@@ -94,6 +94,11 @@ async def rankings_page(request: Request):
     return render(request, "rankings.html", active="rankings", title="排行榜 — GomokuBattle")
 
 
+@app.get("/history", response_class=HTMLResponse)
+async def history_page(request: Request):
+    return render(request, "history.html", active="history", title="历史对局 — 棋域对战")
+
+
 app.include_router(auth.router)
 app.include_router(game.router)
 app.include_router(room.router)

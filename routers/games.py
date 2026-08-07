@@ -1,9 +1,11 @@
 """Clean REST API for standalone multi-game sessions and replays."""
 from copy import deepcopy
+from datetime import timezone
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import SessionLocal, get_db
@@ -49,7 +51,10 @@ def _player_color(code: str) -> str:
 
 
 def _get_record(db: Session, game_id: int, user_id: int) -> GameRecord:
-    record = db.query(GameRecord).filter(GameRecord.id == game_id, GameRecord.player1_id == user_id).first()
+    record = db.query(GameRecord).filter(
+        GameRecord.id == game_id,
+        or_(GameRecord.player1_id == user_id, GameRecord.player2_id == user_id),
+    ).first()
     if not record:
         raise HTTPException(status_code=404, detail="对局不存在")
     return record
@@ -258,14 +263,46 @@ def resign(game_code: str, body: GameIdBody, db: Session = Depends(get_db), curr
 
 @router.get("/history", response_model=ResponseModel[list])
 def history(game_code: str | None = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    query = db.query(GameRecord).filter(GameRecord.player1_id == current_user.id)
+    query = db.query(GameRecord).filter(
+        or_(GameRecord.player1_id == current_user.id, GameRecord.player2_id == current_user.id),
+        GameRecord.status == "completed",
+    )
     if game_code:
         query = query.filter(GameRecord.game_code == game_code)
     records = query.order_by(GameRecord.created_at.desc()).limit(100).all()
-    return ResponseModel(data=[{"id": item.id, "game_code": item.game_code, "status": item.status, "winner_id": item.winner_id, "reason": item.result_reason, "created_at": item.created_at, "ended_at": item.ended_at} for item in records])
+    def serialize(item: GameRecord) -> dict:
+        opponent = "AI" if item.game_type == "ai" else (
+            item.player2.username if item.player1_id == current_user.id and item.player2 else
+            item.player1.username if item.player1 else "未知对手"
+        )
+        started, ended = item.created_at, item.ended_at
+        if started and ended:
+            if started.tzinfo is None and ended.tzinfo is not None:
+                ended = ended.astimezone(timezone.utc).replace(tzinfo=None)
+            elif started.tzinfo is not None and ended.tzinfo is None:
+                started = started.astimezone(timezone.utc).replace(tzinfo=None)
+            duration_seconds = max(0, int((ended - started).total_seconds()))
+        else:
+            duration_seconds = None
+        if item.game_type == "ai":
+            winner_color = (item.game_state or {}).get("result", {}).get("winner")
+            outcome = "draw" if winner_color is None else (
+                "win" if winner_color == _player_color(item.game_code) else "loss"
+            )
+        else:
+            outcome = "draw" if item.winner_id is None else "win" if item.winner_id == current_user.id else "loss"
+        return {
+            "id": item.id, "game_code": item.game_code, "game_type": item.game_type,
+            "opponent": opponent, "outcome": outcome, "reason": item.result_reason,
+            "duration_seconds": duration_seconds, "created_at": item.created_at,
+            "ended_at": item.ended_at,
+        }
+    return ResponseModel(data=[serialize(item) for item in records])
 
 
 @router.get("/replays/{record_id}", response_model=ResponseModel[dict])
 def replay(record_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     record = _get_record(db, record_id, current_user.id)
+    if record.status != "completed":
+        raise HTTPException(status_code=409, detail="对局尚未结束")
     return ResponseModel(data={"id": record.id, "game_code": record.game_code, "initial_state": record.initial_state, "moves": record.moves, "state": record.game_state})

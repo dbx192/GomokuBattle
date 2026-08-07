@@ -617,6 +617,17 @@ h1, h2, h3, h4, h5, h6 {
     margin: 0.25rem 0;
 }
 
+/* ── History ── */
+.history-title { font-size:1.55rem; }
+.history-table th { color:var(--text-muted); font:600 .7rem var(--font-mono); letter-spacing:.05em; text-transform:uppercase; }
+.history-table td { vertical-align:middle; }
+.history-outcome { font-weight:700; }
+.history-outcome-win { color:var(--jade); }
+.history-outcome-loss { color:#e78b83; }
+.history-outcome-draw { color:var(--gold-bright); }
+.replay-body { display:flex; justify-content:center; align-items:center; min-height:300px; padding:16px; background:#111217; }
+.replay-canvas { display:block; width:auto; max-width:100%; max-height:70vh; height:auto; box-shadow:var(--shadow-md); }
+
 /* ── List Group ── */
 .list-group-item {
     background: transparent;
