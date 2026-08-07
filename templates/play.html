@@ -19,11 +19,23 @@
             <div class="status-block"><span class="status-kicker">对局状态</span><strong id="gameStatus">请选择模式并开始</strong><span id="clock" class="clock-display">--:--</span></div>
             <div id="roomInfo" class="room-info d-none"></div>
             <div id="roomControls" class="room-join d-none"><label>加入好友房间</label><div class="join-line"><input id="roomCodeInput" maxlength="6" class="form-control text-uppercase" placeholder="输入 6 位房间码"><button id="joinBtn" class="icon-button" title="加入房间"><i class="bi bi-arrow-right"></i></button></div></div>
-            <div class="sidebar-actions"><button id="undoBtn" class="btn btn-subtle" disabled><i class="bi bi-arrow-counterclockwise"></i> 悔棋</button><button id="passBtn" class="btn btn-subtle d-none"><i class="bi bi-skip-forward"></i> 停一手</button><button id="resignBtn" class="btn btn-danger-subtle" disabled><i class="bi bi-flag"></i> 认输</button></div>
+            <div class="sidebar-actions"><button id="undoBtn" class="btn btn-subtle" disabled><i class="bi bi-arrow-counterclockwise"></i> 悔棋</button><button id="passBtn" class="btn btn-subtle d-none"><i class="bi bi-skip-forward"></i> 停一手</button><button id="rulesBtn" class="btn btn-subtle" type="button" data-bs-toggle="modal" data-bs-target="#rulesModal"><i class="bi bi-journal-text"></i> 棋类规则</button><button id="resignBtn" class="btn btn-danger-subtle" disabled><i class="bi bi-flag"></i> 认输</button></div>
             <p class="rules-note"><i class="bi bi-shield-check"></i> 服务端规则校验<br><i class="bi bi-wifi"></i> 实时状态自动同步</p>
         </aside>
         <section class="board-column"><div class="board-frame"><canvas id="boardCanvas" width="720" height="{% if game_code == 'xiangqi' %}798{% else %}720{% endif %}" class="game-board-canvas{% if game_code == 'xiangqi' %} xiangqi-board{% endif %}"></canvas></div></section>
     </main>
+</div>
+<div class="modal fade" id="rulesModal" tabindex="-1" aria-labelledby="rulesTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title" id="rulesTitle"><i class="bi bi-journal-text"></i> {% if game_code == 'gomoku' %}五子棋{% elif game_code == 'go' %}围棋{% elif game_code == 'xiangqi' %}中国象棋{% else %}国际象棋{% endif %}规则</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+        <div class="modal-body game-rules">
+            {% if game_code == 'gomoku' %}{% include 'partials/rules/gomoku.html' %}
+            {% elif game_code == 'go' %}{% include 'partials/rules/go.html' %}
+            {% elif game_code == 'xiangqi' %}{% include 'partials/rules/xiangqi.html' %}
+            {% elif game_code == 'chess' %}{% include 'partials/rules/chess.html' %}
+            {% endif %}
+        </div>
+    </div></div>
 </div>
 <div class="modal fade" id="gameResultModal" tabindex="-1" aria-labelledby="gameResultTitle" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-sm"><div class="modal-content">
@@ -32,4 +44,4 @@
     </div></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/play.js?v=20260818"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/play.js?v=20260828"></script>{% endblock %}

@@ -7,6 +7,8 @@ let catalog = {};
 let mode = 'ai';
 let aiPollTimer = null;
 let shownResultKey = null;
+let isObserver = false;
+let clockTimer = null;
 
 const names = {gomoku: '五子棋', go: '围棋', xiangqi: '中国象棋', chess: '国际象棋'};
 
@@ -40,6 +42,10 @@ function needAuth() { if (!authHeaders()) { showLoginModal(); return false; } re
 function start() {
     if (!needAuth()) return;
     if (mode === 'room') {
+        if (isObserver) {
+            location.href = `/play/${encodeURIComponent(GAME)}`;
+            return;
+        }
         API.post('/api/match-rooms', {game_code: GAME}).done(res => { room = res.data; playerColor = colors()[0]; activateRoom(); }).fail(showError);
         return;
     }
@@ -62,20 +68,45 @@ function joinFromInviteLink() {
     $('.mode-choice[data-mode="room"]').addClass('is-active');
     updateMode();
     $('#roomCodeInput').val(code);
-    if (needAuth()) join();
+    if (!needAuth()) return;
+    if (new URLSearchParams(location.search).get('watch') === '1') {
+        API.get(`/api/match-rooms/${encodeURIComponent(code)}/watch`).done(res => {
+            room = res.data;
+            activateRoom();
+        }).fail(showError);
+        return;
+    }
+    join();
 }
 
 function currentUserId() { try { return JSON.parse(localStorage.getItem('user') || '{}').id; } catch (_) { return null; } }
 function colors() { return GAME === 'xiangqi' ? ['red','black'] : (GAME === 'chess' ? ['white','black'] : ['black','white']); }
+function updatePlayerLabels() {
+    if (!room) {
+        $('#opponentLabel').text('对手');
+        $('#opponentSide').text('AI');
+        return;
+    }
+    if (isObserver) {
+        $('#opponentLabel').text('对局双方');
+        $('#opponentSide').text(`${room.host_name || '玩家一'} vs ${room.guest_name || '玩家二'}`);
+        return;
+    }
+    const isHost = Number(room.host_id) === Number(currentUserId());
+    $('#opponentLabel').text('对手');
+    $('#opponentSide').text(isHost ? (room.guest_name || '等待加入') : (room.host_name || '对手'));
+}
 function active() {
     const isTurn = state && state.current_player === playerColor && !state.result;
     $('#gameStatus').text(state?.ai_error ? state.ai_error : (state?.result ? `对局结束 · ${state.result.reason}` : (isTurn ? '轮到你落子' : (room ? '等待对手落子' : 'AI 正在思考'))));
     $('#turnPill').text(state?.result ? '已结束' : (isTurn ? '你的回合' : '对手回合')).toggleClass('is-your-turn', !!isTurn);
-    $('#playerSide').text(playerColor || '等待开始');
+    $('#playerSide').text(isObserver ? '旁观者' : (playerColor || '等待开始'));
     $('#resignBtn').prop('disabled', !state || !!state.result);
-    const canUndo = !!state && (room ? !!state.history?.length && !state.result : state.history?.length >= 2 && (isTurn || !!state.result));
-    $('#undoBtn').toggleClass('d-none', GAME === 'go').prop('disabled', !canUndo);
-    $('#passBtn').toggleClass('d-none', GAME !== 'go');
+    const canUndo = !!state && (room ? !!state.history?.length : state.history?.length >= 2 && (isTurn || !!state.result));
+    $('#undoBtn').toggleClass('d-none', isObserver).prop('disabled', !canUndo || isObserver);
+    $('#passBtn').toggleClass('d-none', isObserver || GAME !== 'go').prop('disabled', isObserver);
+    $('#resignBtn').prop('disabled', !state || !!state.result || isObserver);
+    updatePlayerLabels();
     draw();
     showResultOnce();
 }
@@ -105,7 +136,11 @@ function activateRoom() {
         }
         if (data.type === 'undo_accepted') { toastr.success('已悔棋'); return; }
         if (data.type === 'undo_declined') { toastr.info('对手拒绝了悔棋请求'); return; }
-        if (data.type === 'role') playerColor = data.color;
+        if (data.type === 'role') {
+            isObserver = data.role === 'observer';
+            playerColor = isObserver ? null : data.color;
+            $('#playerSide').text(isObserver ? '旁观者' : (playerColor || '等待开始'));
+        }
         if (data.state) { room = data; state = data.state; active(); renderClock(); }
     };
     socket.onclose = () => { if (room && room.status === 'playing') $('#gameStatus').text('连接已关闭，请刷新重连'); };
@@ -254,4 +289,22 @@ function drawXiangqi() {
     if(!state)return;const chars={r:'车',h:'马',e:'相',a:'仕',k:'帅',c:'炮',p:'兵'};const last=recentMove();if(last&&Number.isInteger(last.from_row)&&Number.isInteger(last.to_row)){markRecentPoint(p+last.from_col*cell,p+last.from_row*cell,34);markRecentPoint(p+last.to_col*cell,p+last.to_row*cell,34);}state.board.forEach((row,r)=>row.forEach((piece,c)=>{if(piece==='0')return;const x=p+c*cell,y=p+r*cell;ctx.save();ctx.shadowColor='rgba(39,20,8,.4)';ctx.shadowBlur=6;ctx.shadowOffsetY=3;const g=ctx.createRadialGradient(x-9,y-10,3,x,y,29);if(piece===piece.toUpperCase()){g.addColorStop(0,'#ffe7bd');g.addColorStop(1,'#c8864f');}else{g.addColorStop(0,'#fbf0d9');g.addColorStop(1,'#bca789');}ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,30,0,Math.PI*2);ctx.fill();ctx.strokeStyle=piece===piece.toUpperCase()?'#a52e2b':'#29251f';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle=piece===piece.toUpperCase()?'#a52e2b':'#29251f';ctx.font='30px "Noto Serif SC",serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(chars[piece.toLowerCase()],x,y+1);ctx.restore();}));
     if(selected){ctx.strokeStyle='#f0bf70';ctx.lineWidth=4;ctx.strokeRect(p+selected.col*cell-35,p+selected.row*cell-35,70,70);}
 }
-function renderClock(){if(!room?.clocks)return;const c=room.clocks;$('#clock').text(c.mode==='fischer'?`${Math.ceil(c[colors()[0]]||0)}s / ${Math.ceil(c[colors()[1]]||0)}s`:`每步 ${c.seconds}s`)}
+function renderClock() {
+    if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+    if (!room?.clocks) { $('#clock').text('--:--'); return; }
+    const clocks = room.clocks;
+    if (clocks.mode !== 'per_move') {
+        $('#clock').text(`${Math.ceil(clocks[colors()[0]] || 0)}s / ${Math.ceil(clocks[colors()[1]] || 0)}s`);
+        return;
+    }
+    const update = () => {
+        const seconds = Math.max(0, Math.ceil((Number(clocks.deadline || 0) - Date.now() / 1000)));
+        $('#clock').text(`本手 ${seconds}s`);
+        if (seconds === 0 || state?.result) {
+            clearInterval(clockTimer);
+            clockTimer = null;
+        }
+    };
+    update();
+    if (!state?.result) clockTimer = setInterval(update, 250);
+}

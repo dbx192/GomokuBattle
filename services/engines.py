@@ -15,9 +15,9 @@ from services.game_service import GomokuGame
 
 GAME_CATALOG = {
     "gomoku": {"name": "五子棋", "board": {"rows": 15, "cols": 15}, "time_control": {"mode": "per_move", "seconds": 60}},
-    "go": {"name": "围棋", "board": {"rows": 19, "cols": 19}, "time_control": {"mode": "fischer", "initial_seconds": 600, "increment_seconds": 10}},
-    "xiangqi": {"name": "中国象棋", "board": {"rows": 10, "cols": 9}, "time_control": {"mode": "fischer", "initial_seconds": 600, "increment_seconds": 10}},
-    "chess": {"name": "国际象棋", "board": {"rows": 8, "cols": 8}, "time_control": {"mode": "fischer", "initial_seconds": 600, "increment_seconds": 10}},
+    "go": {"name": "围棋", "board": {"rows": 19, "cols": 19}, "time_control": {"mode": "per_move", "seconds": 60}},
+    "xiangqi": {"name": "中国象棋", "board": {"rows": 10, "cols": 9}, "time_control": {"mode": "per_move", "seconds": 60}},
+    "chess": {"name": "国际象棋", "board": {"rows": 8, "cols": 8}, "time_control": {"mode": "per_move", "seconds": 60}},
 }
 
 
@@ -162,7 +162,17 @@ class GoEngine(GameEngine):
         return result
 
     def undo(self, state):
-        raise GameRuleError("围棋数子与劫争状态不支持单步悔棋")
+        history = state.get("history", [])
+        if not history:
+            raise GameRuleError("没有可撤销的步数")
+
+        # Replaying the validated move history restores captures, self-capture,
+        # ko hashes, and pass state without trusting client-provided snapshots.
+        restored = self.new_state()
+        for item in history[:-1]:
+            move = {"pass": True} if item.get("pass") else {"row": item["row"], "col": item["col"]}
+            restored = self.apply_move(restored, move, item["player"])
+        return restored
 
 
 class ChessEngine(GameEngine):

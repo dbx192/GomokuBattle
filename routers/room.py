@@ -170,28 +170,27 @@ def _serialize_room(room: Room, host_name: str = None, guest_name: str = None) -
         "guest_id": room.guest_id,
         "guest_name": guest_name or (room.guest.username if room.guest else None),
         "status": room.status,
+        "game_code": room.game_code,
         "created_at": room.created_at.isoformat() if room.created_at else None,
         "game_record_id": room.game_record_id,
     }
-
-
-@router.get("/list", response_model=ResponseModel[List[dict]])
-def get_room_list(db: Session = Depends(get_db)):
-    """等待中的房间列表"""
-    rooms = (
-        db.query(Room)
-        .filter(Room.status == "waiting")
-        .order_by(Room.created_at.desc())
-        .all()
-    )
-    room_list = [_serialize_room(r) for r in rooms]
-    return ResponseModel(data=room_list)
 
 
 @router.get("/playing", response_model=ResponseModel[List[dict]])
 def get_playing_room_list(db: Session = Depends(get_db)):
     """公开展示可围观的进行中房间；进入围观仍要求登录。"""
     playing_threshold = datetime.now(timezone.utc).replace(tzinfo=None) - PLAYING_ROOM_MAX_AGE
+    # Keep the public list correct even if the background cleanup task was
+    # interrupted while the service was restarting.
+    stale_rooms = (
+        db.query(Room)
+        .filter(Room.status == "playing", Room.created_at < playing_threshold)
+        .all()
+    )
+    for room in stale_rooms:
+        room.status = "expired"
+    if stale_rooms:
+        db.commit()
     rooms = (
         db.query(Room)
         .filter(Room.status == "playing", Room.created_at >= playing_threshold)
@@ -204,14 +203,13 @@ def get_playing_room_list(db: Session = Depends(get_db)):
 @router.get("/history", response_model=ResponseModel[List[dict]])
 def get_room_history(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    """当前用户参与过的历史房间（含 playing / completed / expired）"""
+    """公开的已结束房间列表，供所有访客查看终局。"""
     rooms = (
         db.query(Room)
         .filter(
-            (Room.host_id == current_user.id) | (Room.guest_id == current_user.id),
-            Room.status != "waiting",
+            Room.status == "completed",
+            Room.game_record_id.isnot(None),
         )
         .order_by(Room.created_at.desc())
         .limit(50)
@@ -224,15 +222,12 @@ def get_room_history(
 def get_room_history_detail(
     room_code: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    """返回参赛者自己的已结束房间棋谱，用于只读复盘。"""
+    """返回已结束房间的终局棋谱，供所有访客只读复盘。"""
     room = db.query(Room).filter(Room.room_code == room_code.upper()).first()
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在")
-    if current_user.id not in {room.host_id, room.guest_id}:
-        raise HTTPException(status_code=403, detail="无权查看该房间的历史对局")
-    if room.status not in {"completed", "expired"} or not room.game_record_id:
+    if room.status != "completed" or not room.game_record_id:
         raise HTTPException(status_code=409, detail="该房间暂无可查看的棋谱")
 
     game_record = db.query(GameRecord).filter(GameRecord.id == room.game_record_id).first()
