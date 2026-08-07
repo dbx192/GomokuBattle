@@ -166,20 +166,20 @@ AI 使用官方成熟引擎，不包含在代码仓库中：Stockfish（国际�
 
 ```bash
 # Windows PowerShell 示例
-$env:STOCKFISH_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\stockfish\\stockfish.exe'
-$env:PIKAFISH_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\pikafish\\pikafish.exe'
-$env:RAPFI_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\rapfi\\pbrain-rapfi.exe'
-$env:KATAGO_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\katago\\katago.exe'
-$env:KATAGO_CONFIG = 'D:\\ProjectsPython\\GomokuBattle\\engines\\katago\\gtp_example.cfg'
-$env:KATAGO_MODEL = 'D:\\ProjectsPython\\GomokuBattle\\engines\\katago\\model.bin.gz'
+$env:STOCKFISH_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\stockfish-windows-x86-64-avx2\\stockfish\\stockfish-windows-x86-64-avx2.exe'
+$env:PIKAFISH_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\Pikafish.2026-01-02\\Windows\\pikafish-avx2.exe'
+$env:RAPFI_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\Rapfi-engine\\pbrain-rapfi-windows-avx2.exe'
+$env:KATAGO_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\katago-v1.15.3-eigen-windows-x64\\katago.exe'
+$env:KATAGO_CONFIG = 'D:\\ProjectsPython\\GomokuBattle\\engines\\katago-v1.15.3-eigen-windows-x64\\default_gtp.cfg'
+$env:KATAGO_MODEL = 'D:\\ProjectsPython\\GomokuBattle\\engines\\b18c384nbt-humanv0.bin.gz'
 
 # Linux / WSL 示例
-export STOCKFISH_PATH="$PWD/engines/stockfish/stockfish"
-export PIKAFISH_PATH="$PWD/engines/pikafish/pikafish"
-export RAPFI_PATH="$PWD/engines/rapfi/pbrain-rapfi"
-export KATAGO_PATH="$PWD/engines/katago/katago"
-export KATAGO_CONFIG="$PWD/engines/katago/gtp_example.cfg"
-export KATAGO_MODEL="$PWD/engines/katago/model.bin.gz"
+export STOCKFISH_PATH="$PWD/engines/stockfish-ubuntu-x86-64-avx2/stockfish/stockfish-ubuntu-x86-64-avx2"
+export PIKAFISH_PATH="$PWD/engines/Pikafish.2026-01-02/Linux/pikafish-avx2"
+export RAPFI_PATH="$PWD/engines/Rapfi-engine/pbrain-rapfi-linux-clang-avx2"
+export KATAGO_PATH="$PWD/engines/katago-v1.15.3-eigen-linux-x64/katago"
+export KATAGO_CONFIG="$PWD/engines/katago-v1.15.3-eigen-linux-x64/default_gtp.cfg"
+export KATAGO_MODEL="$PWD/engines/b18c384nbt-humanv0.bin.gz"
 chmod +x "$STOCKFISH_PATH" "$PIKAFISH_PATH" "$RAPFI_PATH" "$KATAGO_PATH"
 ```
 
