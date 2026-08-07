@@ -17,6 +17,7 @@ let ws = null;
 let wsReconnectAttempts = 0;
 let wsReconnectTimer = null;
 let gameStarted = false;
+let isHistoryReview = false;
 
 let roomCheckInterval = null;
 let lobbyRefreshInterval = null;
@@ -284,6 +285,7 @@ function backToLobby() {
     playerColor = null;
     isObserver = false;
     gameStarted = false;
+    isHistoryReview = false;
     gameOver = false;
     isMyTurn = false;
     winningLine = null;
@@ -298,6 +300,7 @@ function backToLobby() {
     $('#roomCodeDisplay').hide();
     hideWaiting();
     $('#undoBtn').prop('disabled', false).html('<i class="bi bi-arrow-counterclockwise"></i> 请求悔棋');
+    $('#undoBtn').show();
     $('#leaveRoomBtn').prop('disabled', false).html('<i class="bi bi-box-arrow-left"></i> 离开房间');
     $('#turnTimer').hide();
     $('#yourColorInfo').hide();
@@ -311,6 +314,10 @@ function backToLobby() {
 }
 
 function leaveRoom() {
+    if (isHistoryReview) {
+        backToLobby();
+        return;
+    }
     if (!confirm('确定要离开当前房间吗？')) return;
     backToLobby();
     toastr.info('已离开房间');
@@ -589,6 +596,12 @@ function renderHistoryPage() {
     slice.forEach(room => {
         container.append(buildHistoryRow(room));
     });
+    container.find('.history-row').on('click', function(e) {
+        e.preventDefault();
+        const room = slice.find(item => item.room_code === $(this).data('code'));
+        if (room && room.status === 'playing') resumeRoom(room.room_code);
+        else openHistoryReview($(this).data('code'));
+    });
 
     // 更新分页 UI
     const $pagination = $('#historyPagination');
@@ -627,7 +640,7 @@ function buildHistoryRow(room) {
     }
 
     return `
-        <div class="room-row history-row ${resultCls}">
+        <a href="#" class="room-row history-row is-clickable ${resultCls}" data-code="${room.room_code || ''}">
             <div class="room-row-main">
                 <div class="room-row-code">${room.room_code || '------'}</div>
                 <div class="room-row-meta">
@@ -641,8 +654,64 @@ function buildHistoryRow(room) {
                 ${resultHtml}
                 <span class="badge ${meta.cls}">${meta.text}</span>
             </div>
-        </div>
+        </a>
     `;
+}
+
+function openHistoryReview(roomCode) {
+    const code = String(roomCode || '').trim().toUpperCase();
+    if (!code) return;
+
+    API.get('/api/room/history/' + encodeURIComponent(code))
+        .done(res => {
+            if (res.code === 200 && res.data) showHistoryReview(res.data);
+            else toastr.error(res.message || '无法加载历史棋谱');
+        })
+        .fail(xhr => toastr.error(xhr.responseJSON?.detail || '无法加载历史棋谱'));
+}
+
+function showHistoryReview(data) {
+    const game = data.game;
+    if (!game || !Array.isArray(game.board)) {
+        toastr.error('该房间没有可查看的棋谱');
+        return;
+    }
+
+    roomId = null;
+    playerColor = null;
+    isObserver = true;
+    isHistoryReview = true;
+    gameStarted = false;
+    gameOver = true;
+    isMyTurn = false;
+    winningLine = data.winning_line || null;
+    board = Array(BOARD_SIZE).fill(null).map((_, row) =>
+        Array(BOARD_SIZE).fill(null).map((_, col) => {
+            const value = game.board[row] && game.board[row][col];
+            return value === 1 ? 'black' : (value === 2 ? 'white' : null);
+        })
+    );
+    const moves = Array.isArray(game.moves) ? game.moves : [];
+    const latest = moves[moves.length - 1];
+    lastMove = Array.isArray(latest)
+        ? { row: latest[0], col: latest[1], player: latest[2] === 1 ? 'black' : 'white' }
+        : null;
+
+    $('#lobbyView').hide();
+    $('#gameView').show();
+    $('#gameRoomCodeCard').show();
+    $('#gameRoomCode').text(data.room_code || '------');
+    $('#blackPlayer').text(data.host_name || '黑棋');
+    $('#whitePlayer').text(data.guest_name || '白棋');
+    $('#yourColorInfo').hide();
+    $('#playerControls').show();
+    $('#undoBtn').hide();
+    $('#leaveRoomBtn').prop('disabled', false).html('<i class="bi bi-arrow-left"></i> 返回大厅');
+    $('#roomStatus').text(data.winner_color ? `${data.winner_color === 'black' ? '黑棋' : '白棋'}获胜（历史复盘）` : '历史复盘')
+        .removeClass('bg-warning').addClass('bg-secondary');
+    hideWaiting();
+    stopTurnTimer();
+    drawBoard();
 }
 
 function renderRoomList(rooms) {
@@ -1268,6 +1337,7 @@ function endGame(winner, line) {
     closeUndoModals();
     if (!isObserver) {
         $('#undoBtn').prop('disabled', false).html('<i class="bi bi-arrow-counterclockwise"></i> 请求悔棋');
+        $('#undoBtn').show();
     }
 
     if (isObserver) {

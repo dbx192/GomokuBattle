@@ -220,6 +220,57 @@ def get_room_history(
     return ResponseModel(data=[_serialize_room(r) for r in rooms])
 
 
+@router.get("/history/{room_code}", response_model=ResponseModel[dict])
+def get_room_history_detail(
+    room_code: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """返回参赛者自己的已结束房间棋谱，用于只读复盘。"""
+    room = db.query(Room).filter(Room.room_code == room_code.upper()).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在")
+    if current_user.id not in {room.host_id, room.guest_id}:
+        raise HTTPException(status_code=403, detail="无权查看该房间的历史对局")
+    if room.status not in {"completed", "expired"} or not room.game_record_id:
+        raise HTTPException(status_code=409, detail="该房间暂无可查看的棋谱")
+
+    game_record = db.query(GameRecord).filter(GameRecord.id == room.game_record_id).first()
+    if not game_record:
+        raise HTTPException(status_code=404, detail="该房间的棋谱不存在")
+
+    game = GomokuGame()
+    for move in game_record.moves or []:
+        if not isinstance(move, (list, tuple)) or len(move) < 3:
+            continue
+        row, col, player = move[:3]
+        if (
+            not isinstance(row, int)
+            or not isinstance(col, int)
+            or player not in {GomokuGame.BLACK, GomokuGame.WHITE}
+            or not (0 <= row < GomokuGame.BOARD_SIZE and 0 <= col < GomokuGame.BOARD_SIZE)
+        ):
+            continue
+        game.add_move(row, col, player)
+
+    _, winning_line = game.check_winner()
+    winner_color = (
+        "black" if game_record.winner_id == room.host_id
+        else "white" if game_record.winner_id == room.guest_id
+        else None
+    )
+    return ResponseModel(
+        data={
+            **_serialize_room(room),
+            "game": game.to_dict(),
+            "winner_id": game_record.winner_id,
+            "winner_color": winner_color,
+            "winning_line": winning_line,
+            "ended_at": game_record.ended_at.isoformat() if game_record.ended_at else None,
+        }
+    )
+
+
 @router.get("/current", response_model=ResponseModel[Optional[dict]])
 def get_current_room(
     db: Session = Depends(get_db),

@@ -30,6 +30,8 @@ DIFFICULTIES = {
 ENGINE_ENV = {"gomoku": "RAPFI_PATH", "go": "KATAGO_PATH", "xiangqi": "PIKAFISH_PATH", "chess": "STOCKFISH_PATH"}
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 logger = logging.getLogger(__name__)
+_ENGINE_HEALTH_TTL_SECONDS = 30
+_engine_health_cache: dict[str, tuple[float, bool]] = {}
 
 
 def _is_windows_runtime() -> bool:
@@ -44,6 +46,33 @@ def _is_current_platform_binary(path: Path) -> bool:
 
 def _is_executable(path: Path) -> bool:
     return path.is_file() and _is_current_platform_binary(path) and (_is_windows_runtime() or os.access(path, os.X_OK))
+
+
+def _engine_starts(game_code: str, path: str) -> bool:
+    """Verify that a configured engine can start on this host.
+
+    A path can be executable while still failing its dynamic linker because of
+    missing shared-library versions. Cache probes briefly because the catalog
+    endpoint is requested whenever a board page opens.
+    """
+    cached = _engine_health_cache.get(game_code)
+    now = time.monotonic()
+    if cached and now - cached[0] < _ENGINE_HEALTH_TTL_SECONDS:
+        return cached[1]
+    try:
+        if game_code in {"chess", "xiangqi"}:
+            probe = subprocess.run([path], input="uci\nquit\n", text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, cwd=str(Path(path).parent))
+            healthy = probe.returncode == 0 and "uciok" in probe.stdout
+        elif game_code == "go":
+            probe = subprocess.run([path, "version"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, cwd=str(Path(path).parent))
+            healthy = probe.returncode == 0
+        else:
+            probe = subprocess.run([path], input="START 15\nEND\n", text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, cwd=str(Path(path).parent))
+            healthy = probe.returncode == 0 and "OK" in probe.stdout
+    except (OSError, subprocess.SubprocessError):
+        healthy = False
+    _engine_health_cache[game_code] = (now, healthy)
+    return healthy
 
 
 def difficulty_profile(value: str) -> dict:
@@ -103,7 +132,7 @@ def engine_status() -> dict[str, dict]:
     result = {}
     for code, variable in ENGINE_ENV.items():
         path = resolve_path(code)
-        ready = bool(path)
+        ready = bool(path) and _engine_starts(code, path)
         if code == "go":
             config, model = go_resources()
             ready = ready and bool(config) and bool(model)

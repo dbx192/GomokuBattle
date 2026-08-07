@@ -56,3 +56,6 @@ logs/
 
 # Downloaded native AI engines and KataGo neural-network models
 engines/
+blog.md
+engines.tar.gz
+

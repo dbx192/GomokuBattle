@@ -66,7 +66,7 @@ function joinFromInviteLink() {
 }
 
 function currentUserId() { try { return JSON.parse(localStorage.getItem('user') || '{}').id; } catch (_) { return null; } }
-function colors() { return GAME === 'xiangqi' ? ['red','black'] : ['black','white']; }
+function colors() { return GAME === 'xiangqi' ? ['red','black'] : (GAME === 'chess' ? ['white','black'] : ['black','white']); }
 function active() {
     const isTurn = state && state.current_player === playerColor && !state.result;
     $('#gameStatus').text(state?.ai_error ? state.ai_error : (state?.result ? `对局结束 · ${state.result.reason}` : (isTurn ? '轮到你落子' : (room ? '等待对手落子' : 'AI 正在思考'))));
