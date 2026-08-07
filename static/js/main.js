@@ -1,17 +1,28 @@
 const API_BASE = '';
+let authMeRequest = null;
 
 const API = {
-    get: (url, params) => $.ajax({
-        url: API_BASE + url,
-        type: 'GET',
-        data: params,
-        beforeSend: (xhr) => {
-            const token = localStorage.getItem('access_token');
-            if (token) {
-                xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    get: (url, params) => {
+        // Several page-specific scripts also check the session on startup. Share
+        // the in-flight request so one refresh can never fan out into duplicates.
+        if (url === '/api/auth/me' && authMeRequest) return authMeRequest;
+        const request = $.ajax({
+            url: API_BASE + url,
+            type: 'GET',
+            data: params,
+            beforeSend: (xhr) => {
+                const token = localStorage.getItem('access_token');
+                if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
             }
+        });
+        if (url === '/api/auth/me') {
+            authMeRequest = request;
+            request.always(() => {
+                if (authMeRequest === request) authMeRequest = null;
+            });
         }
-    }),
+        return request;
+    },
     post: (url, data) => $.ajax({
         url: API_BASE + url,
         type: 'POST',
@@ -148,8 +159,8 @@ $(function() {
         timeOut: 3000
     };
 
-    // ── 全局拦截：未登录时点击 /game 或 /room 的链接 → 弹登录框，不跳转 ──
-    const PROTECTED_PREFIXES = ['/game', '/room', '/play'];
+    // ── 全局拦截：未登录时进入需要参与对局的页面 → 弹登录框，不跳转 ──
+    const PROTECTED_PREFIXES = ['/game', '/play'];
     function isProtectedPath(href) {
         if (!href) return false;
         return PROTECTED_PREFIXES.some(p =>
@@ -228,5 +239,4 @@ $(function() {
             });
     });
 
-    checkAuth();
 });

@@ -37,6 +37,18 @@ def test_go_capture_and_superko():
         engine.apply_move(state, {"row": 0, "col": 0}, "white")
 
 
+def test_go_undo_restores_the_previous_position_and_turn():
+    engine = GoEngine()
+    state = engine.new_state()
+    state = engine.apply_move(state, {"row": 3, "col": 3}, "black")
+    state = engine.apply_move(state, {"row": 4, "col": 4}, "white")
+    restored = engine.undo(state)
+    assert restored["board"][3][3] == 1
+    assert restored["board"][4][4] == 0
+    assert restored["current_player"] == "white"
+    assert len(restored["history"]) == 1
+
+
 def test_xiangqi_pawn_move_and_turn_validation():
     engine = XiangqiEngine()
     state = engine.new_state()

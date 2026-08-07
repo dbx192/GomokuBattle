@@ -20,7 +20,6 @@ let gameStarted = false;
 let isHistoryReview = false;
 
 let roomCheckInterval = null;
-let lobbyRefreshInterval = null;
 let roomExpireTime = null;
 let roomCountdownInterval = null;
 let turnTimerInterval = null;
@@ -41,7 +40,10 @@ let roomRestoreAttempted = false;
 const HISTORY_PAGE_SIZE = 15;
 let historyAll = [];      // 全量历史
 let historyPage = 1;      // 当前页 (1-based)
-let historyAuthed = false; // 是否已登录（区分"未登录"和"暂无历史"）
+let playingRoomsLoaded = false;
+let historyRoomsLoaded = false;
+let playingRoomsLoading = false;
+let historyRoomsLoading = false;
 
 // 等待遮罩有 d-flex !important，jQuery .hide() 会被覆盖；用 d-none !important 才能正确隐藏
 function showWaiting() { $('#waitingOverlay').removeClass('d-none'); }
@@ -62,8 +64,10 @@ $(function() {
     $('#leaveRoomBtn').on('click', leaveRoom);
     $('#shareHint').on('click', shareRoom);
     $('#shareHint2').on('click', shareRoom);
-    $('#tab-history-btn').on('shown.bs.tab', loadHistoryList);
-    $('#tab-playing-btn').on('shown.bs.tab', loadPlayingRoomList);
+    $('#tab-history-btn').on('shown.bs.tab', ensureHistoryListLoaded);
+    $('#tab-playing-btn').on('shown.bs.tab', ensurePlayingRoomListLoaded);
+    $('#refreshPlayingRoomsBtn').on('click', () => loadPlayingRoomList(true));
+    $('#refreshHistoryRoomsBtn').on('click', () => loadHistoryList(true));
 
     // 悔棋弹窗按钮
     $('#undoAcceptBtn').on('click', () => sendUndoResponse('accept'));
@@ -88,16 +92,6 @@ $(function() {
     });
 
     drawBoard();
-    loadRoomList();
-    loadPlayingRoomList();
-    loadHistoryList();
-    lobbyRefreshInterval = setInterval(() => {
-        if (!roomId) {
-            loadRoomList();
-            loadPlayingRoomList();
-        }
-    }, 5000);
-
     checkAuth();
 });
 
@@ -105,8 +99,6 @@ function checkAuth() {
     const token = localStorage.getItem('access_token');
     if (!token) {
         showAuthNav(null);
-        // 不弹 toast，直接弹登录框让用户登录
-        showLoginModal();
         return;
     }
 
@@ -115,9 +107,6 @@ function checkAuth() {
             if (res.code === 200) {
                 const user = res.data;
                 showAuthNav(user);
-
-                // 重新拉取历史（可能初次未登录态下是空数据）
-                loadHistoryList();
 
                 const urlParams = new URLSearchParams(window.location.search);
                 const watchCode = urlParams.get('watch');
@@ -306,9 +295,6 @@ function backToLobby() {
     $('#yourColorInfo').hide();
     $('#roleLabel').text('你的棋子：');
     $('#playerControls').show();
-    loadRoomList();
-    loadPlayingRoomList();
-    loadHistoryList();
     drawBoard();
     clearRoomSession();
 }
@@ -506,55 +492,50 @@ function resumeRoom(roomCode) {
         .fail(xhr => toastr.error(xhr.responseJSON?.detail || '无法恢复房间'));
 }
 
-function loadRoomList() {
-    API.get('/api/room/list')
-        .done(res => {
-            if (res.code === 200) {
-                renderRoomList(res.data);
-            }
-        });
+function ensurePlayingRoomListLoaded() {
+    if (!playingRoomsLoaded && !playingRoomsLoading) loadPlayingRoomList();
 }
 
-function loadPlayingRoomList() {
+function loadPlayingRoomList(force = false) {
+    if (playingRoomsLoading || (playingRoomsLoaded && !force)) return;
+    playingRoomsLoading = true;
     API.get('/api/room/playing')
         .done(res => {
-            if (res.code === 200) renderPlayingRoomList(res.data);
-        });
+            if (res.code === 200) {
+                playingRoomsLoaded = true;
+                renderPlayingRoomList(res.data);
+            }
+        })
+        .always(() => { playingRoomsLoading = false; });
 }
 
-function loadHistoryList() {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-        historyAll = [];
-        historyAuthed = false;
-        renderHistoryPage();
-        return;
-    }
+function ensureHistoryListLoaded() {
+    if (!historyRoomsLoaded && !historyRoomsLoading) loadHistoryList();
+}
+
+function loadHistoryList(force = false) {
+    if (historyRoomsLoading || (historyRoomsLoaded && !force)) return;
+    historyRoomsLoading = true;
     API.get('/api/room/history')
         .done(res => {
             if (res.code === 200) {
                 historyAll = Array.isArray(res.data) ? res.data : [];
-                historyAuthed = true;
+                historyRoomsLoaded = true;
                 // 切回 tab 时回到第 1 页
                 historyPage = 1;
                 renderHistoryPage();
             }
         })
         .fail(xhr => {
-            if (xhr.status === 401 || xhr.status === 403) {
-                historyAll = [];
-                historyAuthed = false;
-                renderHistoryPage();
-            } else {
-                $('#historyList').html(
-                    '<div class="room-list-empty text-danger">' +
-                    '<i class="bi bi-exclamation-triangle"></i>' +
-                    '<span class="small">加载失败</span></div>'
-                );
-                $('#historyRoomCount').text('0');
-                $('#historyPagination').addClass('is-hidden');
-            }
-        });
+            $('#historyList').html(
+                '<div class="room-list-empty text-danger">' +
+                '<i class="bi bi-exclamation-triangle"></i>' +
+                '<span class="small">加载失败</span></div>'
+            );
+            $('#historyRoomCount').text('0');
+            $('#historyPagination').addClass('is-hidden');
+        })
+        .always(() => { historyRoomsLoading = false; });
 }
 
 function formatTime(value, withSeconds) {
@@ -574,12 +555,10 @@ function renderHistoryPage() {
     $('#historyRoomCount').text(total);
 
     if (total === 0) {
-        const icon = historyAuthed ? 'bi-inbox' : 'bi-person-lock';
-        const text = historyAuthed ? '暂无历史房间' : '登录后查看历史对局';
         container.html(
             '<div class="room-list-empty">' +
-            `<i class="bi ${icon}"></i>` +
-            `<span class="small">${text}</span></div>`
+            '<i class="bi bi-inbox"></i>' +
+            '<span class="small">暂无已结束的历史房间</span></div>'
         );
         $('#historyPagination').addClass('is-hidden');
         return;
@@ -653,6 +632,7 @@ function buildHistoryRow(room) {
             <div class="room-row-side">
                 ${resultHtml}
                 <span class="badge ${meta.cls}">${meta.text}</span>
+                <span class="room-row-result"><i class="bi bi-eye"></i> 查看结局</span>
             </div>
         </a>
     `;
@@ -714,50 +694,6 @@ function showHistoryReview(data) {
     drawBoard();
 }
 
-function renderRoomList(rooms) {
-    const container = $('#roomList');
-    const list = Array.isArray(rooms) ? rooms : [];
-
-    $('#activeRoomCount').text(list.length);
-
-    if (list.length === 0) {
-        container.html(
-            '<div class="room-list-empty">' +
-            '<i class="bi bi-broadcast"></i>' +
-            '<span class="small">暂无等待中的房间</span></div>'
-        );
-        return;
-    }
-
-    container.empty();
-
-    list.forEach(room => {
-        const created = formatTime(room.created_at, true);
-        const host = room.host_name || '匿名';
-        container.append(`
-            <a href="#" class="room-row is-clickable room-item" data-code="${room.room_code}">
-                <div class="room-row-main">
-                    <div class="room-row-code">${room.room_code}</div>
-                    <div class="room-row-meta">
-                        <span class="meta-item"><i class="bi bi-person"></i>${host}</span>
-                        <span class="meta-item"><i class="bi bi-clock"></i>${created}</span>
-                    </div>
-                </div>
-                <div class="room-row-side">
-                    <span class="badge bg-success"><i class="bi bi-broadcast"></i> 等待中</span>
-                </div>
-            </a>
-        `);
-    });
-
-    $('.room-item').off('click').on('click', function(e) {
-        e.preventDefault();
-        const code = $(this).data('code');
-        $('#joinRoomCode').val(code);
-        joinRoom();
-    });
-}
-
 function renderPlayingRoomList(rooms) {
     const container = $('#playingRoomList');
     const list = Array.isArray(rooms) ? rooms : [];
@@ -772,7 +708,7 @@ function renderPlayingRoomList(rooms) {
     }
 
     container.empty();
-    const myId = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').id; } catch (_) { return null; } })();
+    const myId = (() => { try { return Number(JSON.parse(localStorage.getItem('user') || '{}').id) || null; } catch (_) { return null; } })();
     list.forEach(room => {
         const host = room.host_name || '匿名';
         const guest = room.guest_name || '匿名';
@@ -797,8 +733,10 @@ function renderPlayingRoomList(rooms) {
     $('.playing-room-item').off('click').on('click', function(e) {
         e.preventDefault();
         const room = list.find(item => item.room_code === $(this).data('code'));
-        if (room && myId && (room.host_id === myId || room.guest_id === myId)) resumeRoom(room.room_code);
-        else watchRoom($(this).data('code'));
+        if (!room || !room.game_code) return toastr.error('房间棋种信息缺失');
+        const isMine = myId && (Number(room.host_id) === myId || Number(room.guest_id) === myId);
+        const watch = isMine ? '' : '&watch=1';
+        location.href = `/play/${encodeURIComponent(room.game_code)}?room=${encodeURIComponent(room.room_code)}${watch}`;
     });
 }
 

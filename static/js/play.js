@@ -7,6 +7,7 @@ let catalog = {};
 let mode = 'ai';
 let aiPollTimer = null;
 let shownResultKey = null;
+let isObserver = false;
 
 const names = {gomoku: '五子棋', go: '围棋', xiangqi: '中国象棋', chess: '国际象棋'};
 
@@ -62,7 +63,15 @@ function joinFromInviteLink() {
     $('.mode-choice[data-mode="room"]').addClass('is-active');
     updateMode();
     $('#roomCodeInput').val(code);
-    if (needAuth()) join();
+    if (!needAuth()) return;
+    if (new URLSearchParams(location.search).get('watch') === '1') {
+        API.get(`/api/match-rooms/${encodeURIComponent(code)}/watch`).done(res => {
+            room = res.data;
+            activateRoom();
+        }).fail(showError);
+        return;
+    }
+    join();
 }
 
 function currentUserId() { try { return JSON.parse(localStorage.getItem('user') || '{}').id; } catch (_) { return null; } }
@@ -74,8 +83,9 @@ function active() {
     $('#playerSide').text(playerColor || '等待开始');
     $('#resignBtn').prop('disabled', !state || !!state.result);
     const canUndo = !!state && (room ? !!state.history?.length && !state.result : state.history?.length >= 2 && (isTurn || !!state.result));
-    $('#undoBtn').toggleClass('d-none', GAME === 'go').prop('disabled', !canUndo);
-    $('#passBtn').toggleClass('d-none', GAME !== 'go');
+    $('#undoBtn').toggleClass('d-none', isObserver).prop('disabled', !canUndo || isObserver);
+    $('#passBtn').toggleClass('d-none', isObserver || GAME !== 'go').prop('disabled', isObserver);
+    $('#resignBtn').prop('disabled', !state || !!state.result || isObserver);
     draw();
     showResultOnce();
 }
@@ -105,7 +115,11 @@ function activateRoom() {
         }
         if (data.type === 'undo_accepted') { toastr.success('已悔棋'); return; }
         if (data.type === 'undo_declined') { toastr.info('对手拒绝了悔棋请求'); return; }
-        if (data.type === 'role') playerColor = data.color;
+        if (data.type === 'role') {
+            isObserver = data.role === 'observer';
+            playerColor = isObserver ? null : data.color;
+            $('#playerSide').text(isObserver ? '旁观者' : (playerColor || '等待开始'));
+        }
         if (data.state) { room = data; state = data.state; active(); renderClock(); }
     };
     socket.onclose = () => { if (room && room.status === 'playing') $('#gameStatus').text('连接已关闭，请刷新重连'); };

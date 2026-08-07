@@ -58,16 +58,8 @@
                 <div class="card lobby-tabs-card">
                     <div class="card-header p-0">
                         <ul class="nav nav-tabs card-header-tabs" id="roomTabs" role="tablist">
-                            <li class="nav-item room-history-tab" role="presentation">
-                                <button class="nav-link active" id="tab-active-btn"
-                                        data-bs-toggle="tab" data-bs-target="#tab-active" type="button">
-                                    <i class="bi bi-broadcast"></i>
-                                    <span class="tab-text">等待中的房间</span>
-                                    <span class="tab-badge" id="activeRoomCount">0</span>
-                                </button>
-                            </li>
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="tab-playing-btn"
+                                <button class="nav-link active" id="tab-playing-btn"
                                         data-bs-toggle="tab" data-bs-target="#tab-playing" type="button">
                                     <i class="bi bi-eye"></i>
                                     <span class="tab-text">进行中的对局</span>
@@ -86,24 +78,12 @@
                     </div>
                     <div class="card-body p-0">
                         <div class="tab-content">
-                            <div class="tab-pane fade show active" id="tab-active" role="tabpanel">
-                                <div class="tab-toolbar">
-                                    <small class="text-muted">
-                                        <i class="bi bi-arrow-repeat"></i> 每 5 秒自动刷新
-                                    </small>
-                                </div>
-                                <div class="room-list" id="roomList">
-                                    <div class="room-list-empty">
-                                        <i class="bi bi-hourglass-split"></i>
-                                        <span>加载中...</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="tab-pane fade" id="tab-playing" role="tabpanel">
+                            <div class="tab-pane fade show active" id="tab-playing" role="tabpanel">
                                 <div class="tab-toolbar">
                                     <small class="text-muted">
                                         <i class="bi bi-eye"></i> 可实时观看
                                     </small>
+                                    <button type="button" id="refreshPlayingRoomsBtn" class="icon-button" title="刷新进行中的对局" aria-label="刷新进行中的对局"><i class="bi bi-arrow-clockwise"></i></button>
                                 </div>
                                 <div class="room-list" id="playingRoomList">
                                     <div class="room-list-empty">
@@ -112,11 +92,12 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="tab-pane fade room-history-tab" id="tab-history" role="tabpanel">
+                            <div class="tab-pane fade" id="tab-history" role="tabpanel">
                                 <div class="tab-toolbar">
                                     <small class="text-muted">
-                                        <i class="bi bi-info-circle"></i> 我参与过的对局
+                                        <i class="bi bi-info-circle"></i> 已结束对局，所有访客均可查看结局
                                     </small>
+                                    <button type="button" id="refreshHistoryRoomsBtn" class="icon-button" title="刷新历史房间" aria-label="刷新历史房间"><i class="bi bi-arrow-clockwise"></i></button>
                                 </div>
                                 <div class="room-list" id="historyList">
                                     <div class="room-list-empty">
@@ -310,5 +291,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/room.js?v=20260807-history-review"></script>
+<script src="/static/js/room.js?v=20260823"></script>
 {% endblock %}

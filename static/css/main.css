@@ -168,12 +168,21 @@ body {
 .icon-button:hover { background:rgba(212,165,116,.13); }
 .sidebar-actions { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; margin-top:20px; }
 .btn-subtle,.btn-danger-subtle { border:1px solid rgba(255,255,255,.13); background:transparent; text-align:center; }
+.btn-subtle { color:var(--text-primary); background:rgba(255,255,255,.06); }
+.btn-subtle:hover:not(:disabled) { color:var(--text-primary); background:rgba(255,255,255,.12); border-color:rgba(255,255,255,.3); }
+.btn-subtle:disabled { color:var(--text-muted); opacity:.55; }
 #undoBtn { border-color:rgba(232,168,64,.6); color:var(--gold-bright); }
 #resignBtn { border-color:rgba(192,64,64,.65); color:#e78b83; }
 #undoBtn:hover { background:rgba(232,168,64,.12); border-color:var(--amber); color:#ffe0a5; }
 #resignBtn:hover { background:rgba(192,64,64,.13); border-color:var(--cinnabar); color:#ffc0bb; }
 .rules-note { color:var(--text-muted); font-size:.72rem; line-height:1.9; margin-top:28px; }
 .rules-note i { width:18px; color:var(--gold-muted); }
+.game-rules { color:var(--text-secondary); line-height:1.75; }
+.game-rules h6 { color:var(--gold-bright); font-size:.9rem; margin:0 0 .35rem; }
+.game-rules h6:not(:first-child) { margin-top:1.2rem; }
+.game-rules p { margin:0; }
+.game-rules ul { margin:.25rem 0 0; padding-left:1.25rem; }
+.game-rules li + li { margin-top:.2rem; }
 .board-column { min-width:0; display:flex; flex-direction:column; align-items:stretch; }
 .board-frame { width:100%; padding:13px; background:#141418; border:1px solid rgba(255,255,255,.11); box-shadow:0 20px 60px rgba(0,0,0,.32); }
 .board-frame .game-board-canvas { display:block; width:100%; border:0; border-radius:2px; box-shadow:none; }
@@ -618,8 +627,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .captcha-image { width:140px; height:38px; border-left:1px solid var(--border-medium); object-fit:cover; }
-.realtime-room-list .room-create-column,
-.realtime-room-list .room-history-tab { display:none; }
+.realtime-room-list .room-create-column { display:none; }
 
 /* ── History ── */
 .history-title { font-size:1.55rem; }
