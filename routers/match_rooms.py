@@ -47,7 +47,7 @@ def _clock_state(code: str):
 
 
 def _serialize(room, record, state):
-    return {"room_id": room.id, "room_code": room.room_code, "status": room.status, "game_code": room.game_code, "state": state, "clocks": state.get("_clocks", record.clocks), "time_control": room.time_control, "host_id": room.host_id, "guest_id": room.guest_id}
+    return {"room_id": room.id, "room_code": room.room_code, "status": room.status, "game_code": room.game_code, "state": state, "clocks": state.get("_clocks", record.clocks), "time_control": room.time_control, "host_id": room.host_id, "host_name": room.host.username if room.host else None, "guest_id": room.guest_id, "guest_name": room.guest.username if room.guest else None}
 
 
 async def _broadcast(room_id: int, payload: dict):
@@ -76,6 +76,16 @@ def _reset_turn_clock(state: dict, record: GameRecord) -> None:
     if clocks.get("mode") == "per_move":
         clocks["deadline"] = time.time() + clocks["seconds"]
         state["_clocks"] = clocks
+
+
+def _ensure_per_move_clock(state: dict, record: GameRecord, game_code: str) -> dict:
+    clocks = dict(state.get("_clocks") or record.clocks or {})
+    if clocks.get("mode") == "per_move" and clocks.get("deadline"):
+        return clocks
+    clocks = _clock_state(game_code)
+    state["_clocks"] = clocks
+    record.clocks = clocks
+    return clocks
 
 
 def _reopen_after_undo(db: Session, room: Room, record: GameRecord) -> None:
@@ -107,9 +117,9 @@ async def _timeout_room(room_id: int) -> None:
                     return
                 record = db.query(GameRecord).filter_by(id=room.game_record_id).first()
                 state = _state(room, record)
-                clocks = state.get("_clocks") or record.clocks or {}
-                if clocks.get("mode") != "per_move":
-                    return
+                clocks = _ensure_per_move_clock(state, record, room.game_code)
+                state_store.save_state("match", room.id, state, state_store.ROOM_TTL_SECONDS)
+                db.commit()
                 remaining = clocks.get("deadline", 0) - time.time()
                 if remaining > 0:
                     pass
@@ -135,20 +145,9 @@ def _schedule_timeout(room_id: int) -> None:
     timeout_tasks[room_id] = asyncio.create_task(_timeout_room(room_id))
 
 
-def _consume_clock(record, state):
-    clocks = dict(state.get("_clocks") or record.clocks or {})
-    if clocks.get("mode") == "per_move":
-        return state["current_player"] if time.time() >= clocks.get("deadline", 0) else None
-    if clocks.get("mode") != "fischer": return None
-    player = state["current_player"]
-    elapsed = max(0, time.time() - clocks.get("started_at", time.time()))
-    clocks[player] = max(0, clocks[player] - elapsed)
-    if clocks[player] <= 0:
-        return player
-    clocks[player] += clocks["increment_seconds"]
-    clocks["started_at"] = time.time()
-    state["_clocks"] = clocks
-    return None
+def _consume_clock(record, state, game_code: str):
+    clocks = _ensure_per_move_clock(state, record, game_code)
+    return state["current_player"] if time.time() >= clocks["deadline"] else None
 
 
 @router.post("", response_model=ResponseModel[dict])
@@ -176,7 +175,6 @@ def join_room(room_code: str, db: Session = Depends(get_db), current_user: User 
     if room.status != "waiting": raise HTTPException(status_code=409, detail="房间已满")
     room.guest_id = current_user.id; room.status = "playing"; record.player2_id = current_user.id; record.clocks = _clock_state(room.game_code)
     db.commit()
-    _schedule_timeout(room.id)
     return ResponseModel(data=_serialize(room, record, _state(room, record)))
 
 
@@ -185,7 +183,7 @@ def watch_room(room_code: str, db: Session = Depends(get_db), current_user: User
     room = db.query(Room).filter_by(room_code=room_code.upper()).first()
     if not room or room.status != "playing":
         raise HTTPException(status_code=404, detail="房间不可观看")
-    return ResponseModel(data={"room_id": room.id, "room_code": room.room_code, "status": room.status, "game_code": room.game_code, "role": "observer"})
+    return ResponseModel(data={"room_id": room.id, "room_code": room.room_code, "status": room.status, "game_code": room.game_code, "host_id": room.host_id, "host_name": room.host.username if room.host else None, "guest_id": room.guest_id, "guest_name": room.guest.username if room.guest else None, "role": "observer"})
 
 
 @router.websocket("/{room_id}/ws")
@@ -203,7 +201,12 @@ async def ws_room(websocket: WebSocket, room_id: int, token: str = ""):
             record = db.query(GameRecord).filter_by(id=room.game_record_id).first()
             observer = user_id not in {room.host_id, room.guest_id}
             color = None if observer else COLORS[room.game_code][0] if user_id == room.host_id else COLORS[room.game_code][1]
-            initial_payload = _serialize(room, record, _state(room, record))
+            state = _state(room, record)
+            if room.status == "playing":
+                _ensure_per_move_clock(state, record, room.game_code)
+                state_store.save_state("match", room.id, state, state_store.ROOM_TTL_SECONDS)
+                db.commit()
+            initial_payload = _serialize(room, record, state)
         finally:
             db.close()
         await websocket.accept(); connections.setdefault(room_id, set()).add(websocket)
@@ -229,7 +232,7 @@ async def ws_room(websocket: WebSocket, room_id: int, token: str = ""):
                     other = COLORS[room.game_code][1] if color == COLORS[room.game_code][0] else COLORS[room.game_code][0]
                     state["result"] = {"winner": other, "reason": "resignation"}
                 elif action == "move":
-                    timed_out = _consume_clock(record, state)
+                    timed_out = _consume_clock(record, state, room.game_code)
                     if timed_out:
                         other = COLORS[room.game_code][1] if timed_out == COLORS[room.game_code][0] else COLORS[room.game_code][0]
                         state["result"] = {"winner": other, "reason": "timeout"}
@@ -237,7 +240,7 @@ async def ws_room(websocket: WebSocket, room_id: int, token: str = ""):
                         try: state = get_engine(room.game_code).apply_move(state, message.get("move", {}), color)
                         except GameRuleError as exc: await websocket.send_json({"type": "error", "message": str(exc)}); continue
                 elif action == "pass" and room.game_code == "go":
-                    timed_out = _consume_clock(record, state)
+                    timed_out = _consume_clock(record, state, room.game_code)
                     if timed_out:
                         other = COLORS[room.game_code][1] if timed_out == COLORS[room.game_code][0] else COLORS[room.game_code][0]
                         state["result"] = {"winner": other, "reason": "timeout"}

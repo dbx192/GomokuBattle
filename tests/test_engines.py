@@ -10,6 +10,7 @@ from services.game_records import apply_result
 from services.external_ai import AIEngineError, _PersistentGtp, _is_current_platform_binary, choose_go, choose_xiangqi, difficulty_profile, warm_go_engine
 from services.pikafish import board_to_fen
 import routers.games as games_router
+import routers.match_rooms as match_rooms_router
 from routers.games import _ai_move
 from services.state_store import RedisStateStore
 
@@ -47,6 +48,12 @@ def test_go_undo_restores_the_previous_position_and_turn():
     assert restored["board"][4][4] == 0
     assert restored["current_player"] == "white"
     assert len(restored["history"]) == 1
+
+
+def test_realtime_per_move_clock_expires_the_current_player():
+    state = {"current_player": "black"}
+    record = SimpleNamespace(clocks={"mode": "per_move", "seconds": 60, "deadline": -1})
+    assert match_rooms_router._consume_clock(record, state, "gomoku") == "black"
 
 
 def test_xiangqi_pawn_move_and_turn_validation():
