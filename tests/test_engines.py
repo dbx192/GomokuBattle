@@ -1,10 +1,13 @@
 import pytest
+import asyncio
+import json
 from types import SimpleNamespace
+from pathlib import Path
 from fastapi import BackgroundTasks
 
 from services.engines import GameRuleError, GoEngine, GomokuEngine, XiangqiEngine
 from services.game_records import apply_result
-from services.external_ai import choose_go, choose_xiangqi, difficulty_profile, warm_go_engine
+from services.external_ai import AIEngineError, _PersistentGtp, _is_current_platform_binary, choose_go, choose_xiangqi, difficulty_profile, warm_go_engine
 from services.pikafish import board_to_fen
 import routers.games as games_router
 from routers.games import _ai_move
@@ -142,6 +145,53 @@ def test_warming_go_without_an_engine_is_a_noop(monkeypatch):
     monkeypatch.setattr("services.external_ai.resolve_path", lambda code: None)
     monkeypatch.setattr("services.external_ai.go_resources", lambda: (None, None))
     warm_go_engine()
+
+
+def test_linux_runtime_rejects_windows_engine_binary(monkeypatch):
+    monkeypatch.setattr("services.external_ai._is_windows_runtime", lambda: False)
+    assert _is_current_platform_binary(Path("katago"))
+    assert not _is_current_platform_binary(Path("katago.exe"))
+
+
+def test_windows_runtime_rejects_linux_engine_binary(monkeypatch):
+    monkeypatch.setattr("services.external_ai._is_windows_runtime", lambda: True)
+    assert _is_current_platform_binary(Path("katago.exe"))
+    assert not _is_current_platform_binary(Path("katago"))
+
+
+def test_katago_exit_diagnostics_are_not_in_the_client_error():
+    gtp = _PersistentGtp()
+    gtp._process = SimpleNamespace(poll=lambda: None)
+    gtp._stderr_tail.append("/srv/engines/katago: error while loading libzip.so.5")
+
+    error = gtp._exit_error()
+
+    assert str(error) == "AI 服务暂时不可用，请稍后重试"
+    assert "libzip" not in str(error)
+
+
+def test_ai_move_does_not_expose_engine_diagnostics(monkeypatch):
+    monkeypatch.setattr(
+        games_router,
+        "choose_external_move",
+        lambda *args: (_ for _ in ()).throw(AIEngineError("/srv/engines/katago: libzip.so.5 missing")),
+    )
+
+    with pytest.raises(GameRuleError, match="AI 服务暂时不可用，请稍后重试") as exc_info:
+        _ai_move("gomoku", GomokuEngine(), GomokuEngine().new_state(), "normal")
+
+    assert "libzip" not in str(exc_info.value)
+
+
+def test_unhandled_error_response_does_not_expose_exception_details():
+    from main import INTERNAL_ERROR_MESSAGE, unhandled_exception_handler
+
+    response = asyncio.run(
+        unhandled_exception_handler(SimpleNamespace(url=SimpleNamespace(path="/test")), RuntimeError("database password=secret"))
+    )
+
+    assert response.status_code == 500
+    assert json.loads(response.body) == {"detail": INTERNAL_ERROR_MESSAGE}
 
 
 def test_ai_session_returns_player_move_before_ai_thinks(monkeypatch):

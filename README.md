@@ -162,6 +162,8 @@ python seed_users.py
 
 AI 使用官方成熟引擎，不包含在代码仓库中：Stockfish（国际象棋，约 114 MB 压缩包）、Pikafish（中国象棋，约 55 MB）、Rapfi（五子棋，约 37 MB）及 KataGo 与其模型（围棋，模型通常数十到数百 MB）。下载与操作系统匹配的发布包，解压到被 `.gitignore` 排除的 `engines/` 目录。Rapfi 必须保留可执行文件同目录的配置和权重文件。
 
+引擎按运行 Python 进程的平台选择：从 WSL/Linux 启动服务时只会使用 Linux 二进制，Windows 启动服务时只会使用 `.exe`。`KATAGO_PATH` 也必须指向当前平台的文件。不要在 WSL 中配置 Windows 的 `katago.exe`；较旧的 Linux KataGo 包若依赖 OpenSSL 1.1，需要更换为与当前 Linux 发行版兼容的官方构建，不能将 OpenSSL 3 软链接为 1.1。
+
 ```bash
 # Windows PowerShell 示例
 $env:STOCKFISH_PATH = 'D:\\ProjectsPython\\GomokuBattle\\engines\\stockfish\\stockfish.exe'

@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import threading
 import time
-import platform
+import logging
 from collections import deque
 from queue import Empty, Queue
 from pathlib import Path
@@ -29,6 +29,21 @@ DIFFICULTIES = {
 }
 ENGINE_ENV = {"gomoku": "RAPFI_PATH", "go": "KATAGO_PATH", "xiangqi": "PIKAFISH_PATH", "chess": "STOCKFISH_PATH"}
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+logger = logging.getLogger(__name__)
+
+
+def _is_windows_runtime() -> bool:
+    """Return the platform of the Python process, not the host OS of WSL."""
+    return os.name == "nt"
+
+
+def _is_current_platform_binary(path: Path) -> bool:
+    """Avoid launching a Windows PE executable from a Linux/WSL service."""
+    return path.suffix.lower() == ".exe" if _is_windows_runtime() else path.suffix.lower() != ".exe"
+
+
+def _is_executable(path: Path) -> bool:
+    return path.is_file() and _is_current_platform_binary(path) and (_is_windows_runtime() or os.access(path, os.X_OK))
 
 
 def difficulty_profile(value: str) -> dict:
@@ -43,21 +58,21 @@ def resolve_path(game_code: str) -> str | None:
     configured = os.getenv(variable)
     if configured:
         path = Path(configured).expanduser()
-        return str(path) if path.is_file() and (os.name == "nt" or os.access(path, os.X_OK)) else None
-    names = {"gomoku": ("rapfi", "rapfi.exe"), "go": ("katago", "katago.exe"), "xiangqi": ("pikafish", "pikafish.exe"), "chess": ("stockfish", "stockfish.exe")}
+        if _is_executable(path):
+            return str(path)
+    names = {
+        "gomoku": ("rapfi.exe",) if _is_windows_runtime() else ("rapfi",),
+        "go": ("katago.exe",) if _is_windows_runtime() else ("katago",),
+        "xiangqi": ("pikafish.exe",) if _is_windows_runtime() else ("pikafish",),
+        "chess": ("stockfish.exe",) if _is_windows_runtime() else ("stockfish",),
+    }
     found = next((shutil.which(name) for name in names[game_code] if shutil.which(name)), None)
     if found:
         return found
-    # Windows builds run directly under WSL and include their adjacent DLLs. Prefer
-    # them there because older Linux KataGo builds can depend on unavailable system
-    # OpenSSL/libzip versions.
-    is_wsl = "microsoft" in platform.release().lower()
     katago_candidates = [
-        PROJECT_ROOT / "engines/katago-v1.15.3-eigen-windows-x64/katago.exe",
-        PROJECT_ROOT / "engines/katago-v1.15.3-eigen-linux-x64/katago",
-    ] if is_wsl else [
-        PROJECT_ROOT / "engines/katago-v1.15.3-eigen-linux-x64/katago",
-        PROJECT_ROOT / "engines/katago-v1.15.3-eigen-windows-x64/katago.exe",
+        PROJECT_ROOT / "engines/katago-v1.15.3-eigen-windows-x64/katago.exe"
+    ] if _is_windows_runtime() else [
+        PROJECT_ROOT / "engines/katago-v1.15.3-eigen-linux-x64/katago"
     ]
     local_candidates = {
         "gomoku": [PROJECT_ROOT / "engines/Rapfi-engine/pbrain-rapfi-linux-clang-avx2", PROJECT_ROOT / "engines/Rapfi-engine/pbrain-rapfi-windows-avx2.exe"],
@@ -66,7 +81,7 @@ def resolve_path(game_code: str) -> str | None:
         "chess": [PROJECT_ROOT / "engines/stockfish-ubuntu-x86-64-avx2/stockfish/stockfish-ubuntu-x86-64-avx2", PROJECT_ROOT / "engines/stockfish-windows-x86-64-avx2/stockfish/stockfish-windows-x86-64-avx2.exe"],
     }
     for candidate in local_candidates[game_code]:
-        if candidate.is_file() and (os.name == "nt" or candidate.suffix == ".exe" or os.access(candidate, os.X_OK)):
+        if _is_executable(candidate):
             return str(candidate)
     return None
 
@@ -212,8 +227,8 @@ class _PersistentGtp:
     def _exit_error(self) -> AIEngineError:
         code = self._process.poll() if self._process else None
         detail = " ".join(self._stderr_tail or self._output_tail).strip()
-        suffix = f"（退出码 {code}{'：' + detail if detail else ''}）"
-        return AIEngineError("KataGo 意外退出" + suffix)
+        logger.error("KataGo exited unexpectedly (exit code %s): %s", code, detail or "no output")
+        return AIEngineError("AI 服务暂时不可用，请稍后重试")
 
     def request(self, command: list[str], commands: list[str], timeout: float, cwd: str, response: callable) -> str:
         with self._lock:

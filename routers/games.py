@@ -1,6 +1,7 @@
 """Clean REST API for standalone multi-game sessions and replays."""
 from copy import deepcopy
 from datetime import timezone
+import logging
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -19,7 +20,11 @@ from services.external_ai import AIEngineError, DIFFICULTIES, choose_move as cho
 from services.state_store import state_store
 from utils.auth import get_current_user
 
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/games", tags=["游戏"])
+AI_UNAVAILABLE_MESSAGE = "AI 服务暂时不可用，请稍后重试"
 
 
 class StartBody(BaseModel):
@@ -101,7 +106,10 @@ def _ai_move(game_code: str, engine, state: dict, difficulty: str) -> dict:
             raise AIEngineError(f"{game_code} 引擎返回了非法着法") from exc
         return move
     except AIEngineError as exc:
-        raise GameRuleError(str(exc)) from exc
+        # Engine diagnostics can include executable paths and stderr. Log them
+        # server-side and retain only a stable client-facing status message.
+        logger.warning("AI engine failed for %s: %s", game_code, exc, exc_info=True)
+        raise GameRuleError(AI_UNAVAILABLE_MESSAGE) from exc
 
 
 def _complete_ai_turn(game_code: str, game_id: int, player_color: str) -> None:
@@ -145,7 +153,8 @@ def create_session(game_code: str, body: StartBody, db: Session = Depends(get_db
     try:
         require_engine(game_code)
     except AIEngineError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.warning("AI engine is unavailable for %s: %s", game_code, exc, exc_info=True)
+        raise HTTPException(status_code=503, detail=AI_UNAVAILABLE_MESSAGE) from exc
     try:
         engine = get_engine(game_code)
         state = engine.new_state()

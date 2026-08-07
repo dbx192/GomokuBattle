@@ -12,10 +12,14 @@ from services.state_store import state_store
 from services.external_ai import warm_go_engine
 from config import REQUIRE_REDIS
 import asyncio
-import traceback
+import logging
 from datetime import datetime, timedelta, timezone
 from database import SessionLocal
 from models.room import Room
+
+
+logger = logging.getLogger(__name__)
+INTERNAL_ERROR_MESSAGE = "服务器内部错误，请稍后重试"
 
 
 @asynccontextmanager
@@ -60,13 +64,17 @@ def render(request: Request, template_name: str, **ctx) -> HTMLResponse:
     return templates.TemplateResponse(request, template_name, {"request": request, **ctx})
 
 
-# ── 全局异常兜底：500 时打印完整堆栈到控制台，避免页面静默失败 ──
+# ── 全局异常兜底：完整诊断仅保留在服务端日志中。 ──
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    traceback.print_exc()
+    logger.error(
+        "Unhandled request error: %s",
+        request.url.path,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal Server Error: {type(exc).__name__}: {exc}"},
+        content={"detail": INTERNAL_ERROR_MESSAGE},
     )
 
 
