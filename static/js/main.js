@@ -115,7 +115,7 @@ function showLoginModal() {
 
 // 处理登录成功后的跳转：
 //  1. 有 postLoginRedirect → 跳到原本要去的页面（从首页被拦截的情况）
-//  2. 没有 redirect、且当前在受保护页 → 刷新当前页让 game.js / room.js 重新跑（直接访问 /game /room 的情况）
+//  2. 没有 redirect、且当前在受保护页 → 刷新当前页让页面脚本重新初始化
 //  3. 其他（首页）→ 留在原页即可，showUserInfo 已经把用户信息刷出来了
 function handlePostLogin() {
     const redirect = sessionStorage.getItem('postLoginRedirect');
@@ -125,7 +125,7 @@ function handlePostLogin() {
         return;
     }
     const path = location.pathname;
-    if (path.startsWith('/game') || path.startsWith('/room') || path.startsWith('/play')) {
+    if (path.startsWith('/game') || path.startsWith('/play')) {
         location.reload();
     }
 }

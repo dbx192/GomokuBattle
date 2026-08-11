@@ -1,6 +1,6 @@
 {# ── 共用导航栏 ──
    参数：
-     active ∈ {None, 'home', 'game', 'room', 'rankings'}  当前激活的导航项
+     active ∈ {None, 'home', 'game', 'play', 'rankings'}  当前激活的导航项
 #}
 <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
     <div class="container-fluid">
@@ -22,12 +22,6 @@
                     <a class="nav-link{% if active == 'rankings' %} active{% endif %}"
                        href="/rankings">
                         <i class="bi bi-trophy"></i> 排行榜
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link{% if active == 'room' %} active{% endif %}"
-                       href="/room">
-                        <i class="bi bi-broadcast"></i> 实时房间
                     </a>
                 </li>
             </ul>

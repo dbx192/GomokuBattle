@@ -6,8 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
-from routers import auth, game, room, ranking, games, match_rooms
-from routers.room import manager, notify_room_expired
+from routers import auth, game, ranking, games, match_rooms
 from services.state_store import state_store
 from services.external_ai import warm_go_engine
 from config import REQUIRE_REDIS
@@ -28,7 +27,6 @@ async def lifespan(app: FastAPI):
     redis_available = state_store.ping()
     if REQUIRE_REDIS and not redis_available:
         raise RuntimeError("生产环境必须连接 Redis，拒绝使用进程内状态存储")
-    manager.set_main_loop(asyncio.get_running_loop())
     asyncio.create_task(cleanup_expired_rooms())
     asyncio.create_task(asyncio.to_thread(warm_go_engine))
     yield
@@ -95,11 +93,6 @@ async def play_page(request: Request, game_code: str):
     return render(request, "play.html", active="play", game_code=game_code, title="棋域对战")
 
 
-@app.get("/room", response_class=HTMLResponse)
-async def room_page(request: Request):
-    return render(request, "room.html", active="room", title="房间对战 — GomokuBattle")
-
-
 @app.get("/rankings", response_class=HTMLResponse)
 async def rankings_page(request: Request):
     return render(request, "rankings.html", active="rankings", title="排行榜 — GomokuBattle")
@@ -112,7 +105,6 @@ async def history_page(request: Request):
 
 app.include_router(auth.router)
 app.include_router(game.router)
-app.include_router(room.router)
 app.include_router(ranking.router)
 app.include_router(games.router)
 app.include_router(match_rooms.router)
@@ -136,11 +128,6 @@ async def cleanup_expired_rooms():
             )
             for room in expired:
                 room.status = "expired"
-                # 通知 WebSocket 房间内的玩家
-                try:
-                    notify_room_expired(room.id)
-                except Exception:
-                    pass
             if expired:
                 db.commit()
             db.close()

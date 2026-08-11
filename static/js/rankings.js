@@ -1,5 +1,5 @@
 // ── 排行榜页面逻辑 ──
-// 数据源：GET /api/rankings?limit=N
+// 数据源：GET /api/rankings?game_code=CODE&limit=N
 // 响应结构：{ code, message, data: UserStats[] }
 
 let refreshTimer = null;
@@ -30,6 +30,7 @@ $(function() {
 
     // 范围切换
     $('#limitSelect').on('change', loadRankings);
+    $('#gameCodeSelect').on('change', loadRankings);
 
     // 自动刷新开关
     $('#autoRefresh').on('change', function() {
@@ -44,7 +45,8 @@ $(function() {
 // ── 拉取并渲染 ──
 function loadRankings() {
     const limit = parseInt($('#limitSelect').val(), 10) || 20;
-    return API.get('/api/rankings', { limit })
+    const game_code = $('#gameCodeSelect').val() || 'gomoku';
+    return API.get('/api/rankings', { limit, game_code })
         .done(res => {
             if (res.code === 200) {
                 renderAll(res.data || []);
@@ -112,6 +114,7 @@ function renderPodium(top3) {
                 <div class="podium-medal">${medals[i]}</div>
                 <div class="podium-name">${escapeHtml(user.username)}</div>
                 <div class="podium-rate">${winRate}%</div>
+                <div class="podium-stats"><strong>${user.rating ?? 1000}</strong> 分</div>
                 <div class="podium-stats">
                     <span class="text-success">${user.wins || 0}胜</span>
                     <span class="text-muted mx-1">/</span>
@@ -156,6 +159,7 @@ function renderTable(data) {
                     ${isMe ? '<span class="badge bg-primary ms-2" style="font-size:0.7rem;">我</span>' : ''}
                 </td>
                 <td><span class="badge bg-secondary">${escapeHtml(user.rank || '新手')}</span></td>
+                <td class="text-end text-warning fw-bold">${user.rating ?? 1000}</td>
                 <td class="text-end text-success fw-bold">${user.wins || 0}</td>
                 <td class="text-end text-danger">${user.losses || 0}</td>
                 <td>
@@ -181,7 +185,7 @@ function renderMyRankInline(data) {
     const idx = data.findIndex(u => u.id === currentUserId);
     if (idx === -1) {
         // 用户没在当前 limit 范围里 → 拉一次大范围
-        API.get('/api/rankings', { limit: 100 })
+        API.get('/api/rankings', { limit: 100, game_code: $('#gameCodeSelect').val() || 'gomoku' })
             .done(res => {
                 if (res.code === 200) renderMyRankInline(res.data || []);
             });

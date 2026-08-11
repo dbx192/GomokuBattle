@@ -32,6 +32,7 @@ class UserStats(BaseModel):
     wins: int
     losses: int
     win_rate: float
+    rating: int
 
     class Config:
         from_attributes = True

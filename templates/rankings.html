@@ -22,6 +22,12 @@
                 <option value="50">前 50 名</option>
                 <option value="100">前 100 名</option>
             </select>
+            <select id="gameCodeSelect" class="form-select form-select-sm" style="width:auto;" aria-label="棋种">
+                <option value="gomoku" selected>五子棋</option>
+                <option value="go">围棋</option>
+                <option value="xiangqi">中国象棋</option>
+                <option value="chess">国际象棋</option>
+            </select>
             <div class="form-check form-switch m-0">
                 <input class="form-check-input" type="checkbox" id="autoRefresh" style="cursor:pointer;">
                 <label class="form-check-label small" for="autoRefresh" style="cursor:pointer;">30s 自动</label>
@@ -86,6 +92,7 @@
                             <th style="width:72px;">排名</th>
                             <th>玩家</th>
                             <th style="width:90px;">段位</th>
+                            <th class="text-end" style="width:90px;">积分</th>
                             <th class="text-end" style="width:70px;">胜</th>
                             <th class="text-end" style="width:70px;">负</th>
                             <th style="width:200px;">胜率</th>
@@ -93,7 +100,7 @@
                     </thead>
                     <tbody id="rankingsTable">
                         <tr>
-                            <td colspan="6" class="text-center text-muted py-3">
+                            <td colspan="7" class="text-center text-muted py-3">
                                 <div class="spinner-border spinner-border-sm"></div>
                             </td>
                         </tr>

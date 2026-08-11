@@ -44,19 +44,6 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="card">
-                            <div class="card-header">
-                                <i class="bi bi-lightning-charge"></i> 快速操作
-                            </div>
-                            <div class="card-body">
-                                <a href="/play/go" class="btn btn-primary w-100 mb-2">
-                                    <i class="bi bi-controller"></i> 开始对弈
-                                </a>
-                                <a href="/play/chess" class="btn btn-outline-light w-100">
-                                    <i class="bi bi-people"></i> 好友房间
-                                </a>
-                            </div>
-                        </div>
                     </div>
                     <div id="loginPromptCard">
                         <div class="card mb-3">
@@ -89,37 +76,39 @@
                     {% endfor %}
                 </div>
 
-                <div class="row g-3 mb-4">
-                    <div class="col-sm-4">
-                        <div class="card h-100">
-                            <div class="card-body text-center py-3">
-                                <i class="bi bi-shield-check text-jade" style="font-size:1.5rem;"></i>
-                                <h6 class="mt-2 mb-0">零广告</h6>
-                                <small class="text-muted">纯净游戏体验</small>
-                            </div>
+                <section class="mb-4" aria-labelledby="playingRoomsTitle">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h2 id="playingRoomsTitle" class="h5 mb-0"><i class="bi bi-broadcast text-jade"></i> 正在对战</h2>
+                        <small class="text-muted" id="playingRoomCount">加载中</small>
+                    </div>
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead><tr><th>棋种</th><th>对局</th><th class="text-end">操作</th></tr></thead>
+                                <tbody id="playingRoomsTable"><tr><td colspan="3" class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm"></div></td></tr></tbody>
+                            </table>
                         </div>
                     </div>
-                    <div class="col-sm-4">
-                        <div class="card h-100">
-                            <div class="card-body text-center py-3">
-                                <i class="bi bi-lightning-charge text-gold" style="font-size:1.5rem;"></i>
-                                <h6 class="mt-2 mb-0">精确落子</h6>
-                                <small class="text-muted">流畅操作体验</small>
-                            </div>
+                </section>
+
+                <section aria-labelledby="lobbyHistoryTitle">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h2 id="lobbyHistoryTitle" class="h5 mb-0"><i class="bi bi-clock-history text-gold"></i> 大厅对战历史</h2>
+                        <a href="/history" class="small text-muted text-decoration-none">我的历史 <i class="bi bi-arrow-right"></i></a>
+                    </div>
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead><tr><th>棋种</th><th>对局</th><th class="text-end">步数</th><th class="text-end">结束时间</th></tr></thead>
+                                <tbody id="lobbyHistoryTable"><tr><td colspan="4" class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm"></div></td></tr></tbody>
+                            </table>
                         </div>
                     </div>
-                    <div class="col-sm-4">
-                        <div class="card h-100">
-                            <div class="card-body text-center py-3">
-                                <i class="bi bi-bar-chart text-gold" style="font-size:1.5rem;"></i>
-                                <h6 class="mt-2 mb-0">段位系统</h6>
-                                <small class="text-muted">公平竞技匹配</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                </section>
             </div>
         </div>
     </div>
 </div>
 {% endblock %}
+
+{% block scripts %}<script src="/static/js/lobby.js"></script>{% endblock %}

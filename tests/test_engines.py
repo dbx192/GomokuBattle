@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks
 
 from services.engines import GameRuleError, GoEngine, GomokuEngine, XiangqiEngine
-from services.game_records import apply_result
+from services.game_records import apply_result, _rating_delta
 from services.external_ai import AIEngineError, _PersistentGtp, _is_current_platform_binary, choose_go, choose_xiangqi, difficulty_profile, warm_go_engine
 from services.pikafish import board_to_fen
 import routers.games as games_router
@@ -105,6 +105,10 @@ def test_terminal_game_initializes_new_game_stats_before_incrementing():
     record = SimpleNamespace(status="in_progress", game_code="xiangqi")
     apply_result(db, record, {"result": {"winner": "red", "reason": "checkmate"}}, {"red": 1})
     assert db.added[0].wins == 1
+
+
+def test_rating_delta_rewards_an_upset_more_than_a_favorite_win():
+    assert _rating_delta(800, 1200) > _rating_delta(1200, 800)
 
 
 def test_pikafish_fen_uses_red_side_to_move():

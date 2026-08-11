@@ -13,3 +13,17 @@ class UserGameStats(Base):
     wins = Column(Integer, default=0, nullable=False)
     losses = Column(Integer, default=0, nullable=False)
     draws = Column(Integer, default=0, nullable=False)
+
+
+class UserGameRating(Base):
+    """Competitive rating for a user in one ruleset."""
+    __tablename__ = "user_game_ratings"
+    __table_args__ = (UniqueConstraint("user_id", "game_code", name="uq_user_game_ratings"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    game_code = Column(String(20), nullable=False, index=True)
+    rating = Column(Integer, default=1000, nullable=False)
+    wins = Column(Integer, default=0, nullable=False)
+    losses = Column(Integer, default=0, nullable=False)
+    draws = Column(Integer, default=0, nullable=False)

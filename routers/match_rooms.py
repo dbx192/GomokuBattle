@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal, get_db
 from models.game import GameRecord
-from models.game_stats import UserGameStats
+from models.game_stats import UserGameStats, UserGameRating
 from models.room import Room
 from models.user import User
 from schemas.common import ResponseModel
@@ -100,6 +100,28 @@ def _reopen_after_undo(db: Session, room: Room, record: GameRecord) -> None:
         stats = db.query(UserGameStats).filter_by(user_id=loser_id, game_code=record.game_code).first()
         if stats:
             stats.losses = max(0, (stats.losses or 0) - 1)
+    result = (record.game_state or {}).get("result", {})
+    if record.winner_id and result.get("rating_delta") is not None:
+        winner_rating = db.query(UserGameRating).filter_by(
+            user_id=record.winner_id, game_code=record.game_code
+        ).first()
+        loser_rating = db.query(UserGameRating).filter_by(
+            user_id=loser_id, game_code=record.game_code
+        ).first()
+        delta = int(result["rating_delta"])
+        if winner_rating:
+            winner_rating.rating -= delta
+            winner_rating.wins = max(0, winner_rating.wins - 1)
+        if loser_rating:
+            loser_rating.rating += delta
+            loser_rating.losses = max(0, loser_rating.losses - 1)
+    elif record.winner_id is None and record.game_state:
+        for user_id in (room.host_id, room.guest_id):
+            rating = db.query(UserGameRating).filter_by(
+                user_id=user_id, game_code=record.game_code
+            ).first()
+            if rating:
+                rating.draws = max(0, rating.draws - 1)
     record.status = "in_progress"
     record.winner_id = None
     record.result_reason = None
@@ -163,6 +185,60 @@ def create_room(body: RoomCreate, db: Session = Depends(get_db), current_user: U
     db.add(room); db.commit(); db.refresh(room)
     state_store.save_state("match", room.id, state, state_store.ROOM_TTL_SECONDS)
     return ResponseModel(data=_serialize(room, record, state))
+
+
+@router.get("/history", response_model=ResponseModel[list])
+def history(db: Session = Depends(get_db), limit: int = 50):
+    """Public lobby history; ultra-short wins are omitted."""
+    rows = (
+        db.query(Room, GameRecord)
+        .join(GameRecord, GameRecord.id == Room.game_record_id)
+        .filter(Room.status == "completed")
+        .order_by(Room.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    result = []
+    for room, record in rows:
+        if len(record.moves or []) <= 3:
+            continue
+        result.append({
+            "room_id": room.id,
+            "room_code": room.room_code,
+            "status": room.status,
+            "game_code": room.game_code,
+            "host_id": room.host_id,
+            "host_name": room.host.username if room.host else None,
+            "guest_id": room.guest_id,
+            "guest_name": room.guest.username if room.guest else None,
+            "winner_id": record.winner_id,
+            "move_count": len(record.moves or []),
+            "created_at": room.created_at,
+            "ended_at": record.ended_at,
+        })
+        if len(result) >= min(max(limit, 1), 100):
+            break
+    return ResponseModel(data=result)
+
+
+@router.get("/playing", response_model=ResponseModel[list])
+def playing_rooms(db: Session = Depends(get_db), limit: int = 50):
+    """Public list of active rooms available for spectating."""
+    rooms = (
+        db.query(Room)
+        .filter(Room.status == "playing", Room.guest_id.isnot(None))
+        .order_by(Room.created_at.desc())
+        .limit(min(max(limit, 1), 100))
+        .all()
+    )
+    return ResponseModel(data=[{
+        "room_id": room.id,
+        "room_code": room.room_code,
+        "game_code": room.game_code,
+        "host_name": room.host.username if room.host else None,
+        "guest_name": room.guest.username if room.guest else None,
+        "created_at": room.created_at,
+    } for room in rooms])
 
 
 @router.post("/{room_code}/join", response_model=ResponseModel[dict])
