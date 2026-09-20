@@ -351,11 +351,14 @@ h1, h2, h3, h4, h5, h6 {
     border: 1px solid var(--border-subtle);
     background: var(--bg-surface);
     border-radius: var(--radius-lg);
-    padding: 2rem 1.5rem;
+    padding: 2rem 1.5rem 1.5rem;
     text-align: center;
     transition: all var(--transition-slow);
     position: relative;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 270px;
 }
 
 .game-mode-card::before {
@@ -396,6 +399,13 @@ h1, h2, h3, h4, h5, h6 {
 
 .game-mode-card .card-text {
     color: var(--text-secondary);
+}
+
+.game-mode-card .enter-btn {
+    margin-top: auto;
+    width: 100%;
+    padding: 0.55rem 1rem;
+    font-size: 0.9rem;
 }
 
 /* ── Buttons ── */

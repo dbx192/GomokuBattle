@@ -11,7 +11,7 @@
         <aside class="play-sidebar">
             <div class="play-actions">
                 <div class="mode-switch" role="group"><button class="mode-choice is-active" data-mode="ai"><i class="bi bi-cpu"></i> 人机</button><button class="mode-choice" data-mode="room"><i class="bi bi-people"></i> 房间</button></div>
-                <label class="ai-difficulty" id="difficultyControl"><span>AI 难度</span><select id="difficultySelect" class="form-select form-select-sm"><option value="easy">简单</option><option value="normal" selected>普通</option><option value="hard">困难</option></select></label>
+                <label class="ai-difficulty" id="difficultyControl"><span>AI 难度</span><select id="difficultySelect" class="form-select form-select-sm"><option value="easy" selected>简单</option><option value="normal">普通</option><option value="hard">困难</option></select></label>
                 <button id="startBtn" class="btn btn-primary"><i class="bi bi-play-fill"></i> 开始对局</button>
             </div>
             <div class="player-strip"><span class="player-dot player-dot-you"></span><div><small>你</small><strong id="playerSide">等待开始</strong></div><span class="turn-pill" id="turnPill">未开始</span></div>
@@ -44,4 +44,4 @@
     </div></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/play.js?v=20260828"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/play.js?v=20260920"></script>{% endblock %}

@@ -64,12 +64,15 @@
                 <div class="row g-4 mb-4">
                     {% for code, icon, title, text in [('gomoku','bi-grid-3x3','五子棋','连珠致胜，快速开局'), ('go','bi-circle','围棋','19 路中国规则，数子决胜'), ('xiangqi','bi-diagram-3','中国象棋','楚河汉界，运筹帷幄'), ('chess','bi-grid','国际象棋','完整 FIDE 规则对弈')] %}
                     <div class="col-md-6 col-xl-3">
-                        <a href="/play/{{ code }}" class="text-decoration-none">
-                            <div class="game-mode-card">
+                        <a href="/play/{{ code }}" class="text-decoration-none h-100 d-block">
+                            <div class="game-mode-card h-100 d-flex flex-column">
                                 <i class="bi {{ icon }}" style="font-size: 2.5rem;"></i>
                                 <h5 class="card-title mt-2">{{ title }}</h5>
-                                <p class="card-text mb-0">{{ text }}</p>
-                                <small class="text-muted">人机 · 房间 · 复盘</small>
+                                <p class="card-text">{{ text }}</p>
+                                <small class="text-muted mb-3">人机 · 房间 · 复盘</small>
+                                <span class="btn btn-primary enter-btn">
+                                    <i class="bi bi-controller"></i> 进入对局 <i class="bi bi-arrow-right"></i>
+                                </span>
                             </div>
                         </a>
                     </div>
