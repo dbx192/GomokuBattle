@@ -7,7 +7,7 @@ from fastapi import BackgroundTasks
 
 from services.engines import GameRuleError, GoEngine, GomokuEngine, XiangqiEngine
 from services.game_records import apply_result, _rating_delta
-from services.external_ai import AIEngineError, _PersistentGtp, _is_current_platform_binary, choose_go, choose_xiangqi, difficulty_profile, warm_go_engine
+from services.external_ai import AIEngineError, _PersistentGtp, _engine_env, _is_current_platform_binary, choose_go, choose_xiangqi, difficulty_profile, warm_go_engine
 from services.pikafish import board_to_fen
 import routers.games as games_router
 import routers.match_rooms as match_rooms_router
@@ -127,6 +127,16 @@ def test_external_pikafish_move_is_converted_and_rules_checked(monkeypatch):
     assert XiangqiEngine().apply_move(state, move, "red")["board"][7][4] == "C"
 
 
+def test_pikafish_uses_time_budget_and_small_single_thread_hash(monkeypatch):
+    seen = {}
+    monkeypatch.setattr("services.external_ai.resolve_path", lambda code: "/tmp/pikafish")
+    monkeypatch.setattr("services.external_ai._run", lambda command, commands, *args, **kwargs: seen.setdefault("commands", commands) and "bestmove b2e2\n")
+    choose_xiangqi(XiangqiEngine().new_state(), "hard")
+    assert "setoption name Threads value 1" in seen["commands"]
+    assert "setoption name Hash value 16" in seen["commands"]
+    assert "go movetime 3000" in seen["commands"]
+
+
 def test_ai_difficulty_profiles_increase_search_budget():
     assert difficulty_profile("easy")["move_time_ms"] < difficulty_profile("normal")["move_time_ms"]
     assert difficulty_profile("normal")["move_time_ms"] < difficulty_profile("hard")["move_time_ms"]
@@ -151,7 +161,22 @@ def test_human_katago_model_receives_required_profile(monkeypatch):
     monkeypatch.setattr("services.external_ai.go_resources", lambda: ("/tmp/gtp.cfg", "/tmp/b18c384nbt-humanv0.bin.gz"))
     monkeypatch.setattr("services.external_ai._KATAGO_GTP.request", lambda command, *args, **kwargs: seen.setdefault("command", command) and "=4 D4\n")
     assert choose_go(GoEngine().new_state(), "normal") == {"row": 15, "col": 3}
-    assert "humanSLProfile=rank_9d" in seen["command"]
+    assert "humanSLProfile=rank_9d" in seen["command"][-1]
+
+
+def test_katago_replays_moves_in_game_order(monkeypatch):
+    seen = {}
+    monkeypatch.setattr("services.external_ai.resolve_path", lambda code: "/tmp/katago")
+    monkeypatch.setattr("services.external_ai.go_resources", lambda: ("/tmp/gtp.cfg", "/tmp/model.bin.gz"))
+    def fake_request(command, commands, *args, **kwargs):
+        seen["commands"] = commands
+        return "=6 D4\n"
+    monkeypatch.setattr("services.external_ai._KATAGO_GTP.request", fake_request)
+    engine = GoEngine()
+    state = engine.apply_move(engine.new_state(), {"row": 15, "col": 15}, "black")
+    state = engine.apply_move(state, {"row": 3, "col": 3}, "white")
+    choose_go(state, "normal")
+    assert seen["commands"][3:5] == ["4 play B Q4", "5 play W D16"]
 
 
 def test_gomoku_ai_validation_does_not_apply_the_move_twice(monkeypatch):
@@ -174,6 +199,13 @@ def test_linux_runtime_rejects_windows_engine_binary(monkeypatch):
     monkeypatch.setattr("services.external_ai._is_windows_runtime", lambda: False)
     assert _is_current_platform_binary(Path("katago"))
     assert not _is_current_platform_binary(Path("katago.exe"))
+
+
+def test_engine_subprocess_can_use_private_cpp_runtime(monkeypatch, tmp_path):
+    (tmp_path / "libstdc++.so.6").touch()
+    monkeypatch.setenv("ENGINE_LIBRARY_PATH", str(tmp_path))
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/existing")
+    assert _engine_env()["LD_LIBRARY_PATH"] == f"{tmp_path}:/existing"
 
 
 def test_windows_runtime_rejects_linux_engine_binary(monkeypatch):
