@@ -157,6 +157,7 @@ python seed_users.py
 | `KATAGO_PATH` | 未设置 | KataGo 可执行文件路径 |
 | `KATAGO_CONFIG` | 未设置 | KataGo GTP 配置文件路径 |
 | `KATAGO_MODEL` | 未设置 | KataGo 神经网络模型路径 |
+| `ENGINE_LIBRARY_PATH` | `/opt/gomokubattle-runtime/lib` | 可选，仅供棋类引擎子进程使用的兼容版 `libstdc++.so.6` 所在目录；不会替换系统库 |
 
 ### AI 引擎部署
 
@@ -184,6 +185,13 @@ chmod +x "$STOCKFISH_PATH" "$PIKAFISH_PATH" "$RAPFI_PATH" "$KATAGO_PATH"
 ```
 
 开局时可选择简单、普通、困难，对应每步约 250ms、1s、3s 的引擎思考预算。未部署的引擎会阻止创建人机对局并明确提示缺少的配置，不会回退到自写 AI。
+
+### 低配置服务器上的 AI 稳定性
+
+- 只启动 **一个 Uvicorn worker**。KataGo 模型由每个 worker 独立加载，多 worker 会使内存用量成倍增加。当前适配器将 KataGo 限制为一个搜索线程和较小的神经网络缓存；Pikafish 使用一个线程、16 MiB 哈希表和固定思考时长。
+- 如果日志中出现 `GLIBCXX_3.4.30 not found`，给引擎子进程配置 `ENGINE_LIBRARY_PATH`，指向含兼容 `libstdc++.so.6` 的目录。不要修改 `/usr/lib64` 中的系统库。安装的库必须与本机 glibc 兼容。
+- 至少为 KataGo 留出约 1 GiB 可用内存，并保留 swap 作为突发缓冲；内存不足时搜索可能超过 30 秒并返回超时。查看 `journalctl -u gomokubattle.service -n 100 --no-pager` 和 `free -h` 诊断持续故障。
+- 更新代码后重启服务以加载新适配器，例如 `systemctl restart gomokubattle.service`。该服务的 `ExecStart` 应使用 `/usr/local/bin/python3 -m uvicorn main:app --workers 1`（或不指定 workers，默认也是一个）。
 
 ## API 速查
 

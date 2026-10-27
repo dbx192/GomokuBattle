@@ -34,6 +34,16 @@ _ENGINE_HEALTH_TTL_SECONDS = 30
 _engine_health_cache: dict[str, tuple[float, bool]] = {}
 
 
+def _engine_env() -> dict[str, str]:
+    """Use a private C++ runtime for engines on older Linux hosts, when present."""
+    env = os.environ.copy()
+    if os.name != "nt":
+        library_dir = os.getenv("ENGINE_LIBRARY_PATH", "/opt/gomokubattle-runtime/lib")
+        if Path(library_dir, "libstdc++.so.6").is_file():
+            env["LD_LIBRARY_PATH"] = os.pathsep.join(filter(None, (library_dir, env.get("LD_LIBRARY_PATH"))))
+    return env
+
+
 def _is_windows_runtime() -> bool:
     """Return the platform of the Python process, not the host OS of WSL."""
     return os.name == "nt"
@@ -61,13 +71,13 @@ def _engine_starts(game_code: str, path: str) -> bool:
         return cached[1]
     try:
         if game_code in {"chess", "xiangqi"}:
-            probe = subprocess.run([path], input="uci\nquit\n", text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, cwd=str(Path(path).parent))
+            probe = subprocess.run([path], input="uci\nquit\n", text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, cwd=str(Path(path).parent), env=_engine_env())
             healthy = probe.returncode == 0 and "uciok" in probe.stdout
         elif game_code == "go":
-            probe = subprocess.run([path, "version"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, cwd=str(Path(path).parent))
+            probe = subprocess.run([path, "version"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, cwd=str(Path(path).parent), env=_engine_env())
             healthy = probe.returncode == 0
         else:
-            probe = subprocess.run([path], input="START 15\nEND\n", text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, cwd=str(Path(path).parent))
+            probe = subprocess.run([path], input="START 15\nEND\n", text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3, cwd=str(Path(path).parent), env=_engine_env())
             healthy = probe.returncode == 0 and "OK" in probe.stdout
     except (OSError, subprocess.SubprocessError):
         healthy = False
@@ -166,7 +176,7 @@ def _run(command: list[str], commands: list[str], timeout: float, cwd: str | Non
                 candidate = Path(argument)
                 windows_command.append(os.path.relpath(candidate, launch_dir) if candidate.is_absolute() and candidate.is_file() else argument)
             process_command = ["script", "-qfec", shlex.join(windows_command), "/dev/null"]
-        process = subprocess.Popen(process_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd=cwd)
+        process = subprocess.Popen(process_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd=cwd, env=_engine_env())
         assert process.stdin is not None and process.stdout is not None
         process.stdin.write("\n".join(commands) + "\n")
         process.stdin.flush()
@@ -235,20 +245,23 @@ class _PersistentGtp:
                 candidate = Path(argument)
                 windows_command.append(os.path.relpath(candidate, launch_dir) if candidate.is_absolute() and candidate.is_file() else argument)
             process_command = ["script", "-qfec", shlex.join(windows_command), "/dev/null"]
-        process = subprocess.Popen(process_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd)
+        process = subprocess.Popen(process_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=_engine_env())
         assert process.stdin is not None and process.stdout is not None and process.stderr is not None
         self._process = process
         self._command, self._cwd = tuple(command), cwd
+        output_queue = self._output
+        output_tail = self._output_tail
+        stderr_tail = self._stderr_tail
 
         def read_output():
             for line in process.stdout:
-                self._output_tail.append(line.strip())
-                self._output.put(line)
-            self._output.put(None)
+                output_tail.append(line.strip())
+                output_queue.put(line)
+            output_queue.put(None)
 
         def read_stderr():
             for line in process.stderr:
-                self._stderr_tail.append(line.strip())
+                stderr_tail.append(line.strip())
 
         threading.Thread(target=read_output, daemon=True).start()
         threading.Thread(target=read_stderr, daemon=True).start()
@@ -291,6 +304,7 @@ class _PersistentGtp:
                             return "".join(output)
                     if exited:
                         continue
+                    self._stop()
                     raise AIEngineError("KataGo 思考超时")
                 except (OSError, subprocess.SubprocessError) as exc:
                     self._stop()
@@ -307,9 +321,7 @@ def warm_go_engine() -> None:
     config, model = go_resources()
     if not path or not config or not model:
         return
-    command = [path, "gtp", "-config", config, "-model", model]
-    if "human" in Path(model).name.lower():
-        command.extend(["-override-config", "humanSLProfile=rank_9d"])
+    command = _go_command(path, config, model)
     try:
         with _KATAGO_GTP._lock:
             if _KATAGO_GTP._process is None or _KATAGO_GTP._process.poll() is not None:
@@ -343,7 +355,7 @@ def choose_xiangqi(state: dict, difficulty: str) -> dict:
         raise AIEngineError("Pikafish 未部署，请配置 PIKAFISH_PATH")
     profile = difficulty_profile(difficulty)
     # Pikafish keeps pikafish.nnue one directory above its CPU-specific binary.
-    output = _run([path], ["uci", "isready", "ucinewgame", "isready", f"position fen {board_to_fen(state['board'], state['current_player'])}", f"go depth {profile['depth']}"], profile["move_time_ms"] / 1000 + 5, cwd=str(Path(path).parent.parent))
+    output = _run([path], ["uci", "setoption name Threads value 1", "setoption name Hash value 16", "isready", "ucinewgame", f"position fen {board_to_fen(state['board'], state['current_player'])}", f"go movetime {profile['move_time_ms']}"], profile["move_time_ms"] / 1000 + 5, cwd=str(Path(path).parent.parent))
     try:
         return _uci_to_move(_bestmove(output))
     except ValueError as exc:
@@ -353,6 +365,13 @@ def choose_xiangqi(state: dict, difficulty: str) -> dict:
 def _go_coord(row: int, col: int) -> str:
     files = "ABCDEFGHJKLMNOPQRST"
     return f"{files[col]}{19 - row}"
+
+
+def _go_command(path: str, config: str, model: str) -> list[str]:
+    overrides = ["numSearchThreads=1", "numEigenThreadsPerModel=1", "nnCacheSizePowerOfTwo=15"]
+    if "human" in Path(model).name.lower():
+        overrides.append("humanSLProfile=rank_9d")
+    return [path, "gtp", "-config", config, "-model", model, "-override-config", ",".join(overrides)]
 
 
 def choose_go(state: dict, difficulty: str) -> dict:
@@ -368,21 +387,19 @@ def choose_go(state: dict, difficulty: str) -> dict:
         return f"{command_id} {command}"
 
     commands = [gtp("boardsize 19"), gtp("clear_board"), gtp(f"time_settings 0 {max(1, profile['move_time_ms'] // 1000)} 1")]
-    for row, values in enumerate(state["board"]):
-        for col, stone in enumerate(values):
-            if stone:
-                commands.append(gtp(f"play {'B' if stone == 1 else 'W'} {_go_coord(row, col)}"))
+    for move in state.get("history", []):
+        if not move.get("pass"):
+            commands.append(gtp(f"play {'B' if move['player'] == 'black' else 'W'} {_go_coord(move['row'], move['col'])}"))
     commands.append(gtp(f"genmove {'B' if state['current_player'] == 'black' else 'W'}"))
     final_id = command_id
-    response_pattern = re.compile(rf"^=\s*{final_id}(?:\s|$)")
-    command = [path, "gtp", "-config", config, "-model", model]
-    # The b18c human SL model distributed with KataGo requires profile metadata
-    # even when used as the main model. A normal KataGo model does not need this.
-    if "human" in Path(model).name.lower():
-        command.extend(["-override-config", "humanSLProfile=rank_9d"])
+    response_pattern = re.compile(rf"^[=?]\s*{final_id}(?:\s|$)")
+    command = _go_command(path, config, model)
     # KataGo model initialization is costly. Keep one serialized GTP process
     # alive so normal moves do not reload the model every turn.
-    output = _KATAGO_GTP.request(command, commands, profile["move_time_ms"] / 1000 + 10, str(Path(path).parent), response=lambda line: bool(response_pattern.match(line)))
+    output = _KATAGO_GTP.request(command, commands, max(30, profile["move_time_ms"] / 1000 + 10), str(Path(path).parent), response=lambda line: bool(response_pattern.match(line)))
+    if re.search(rf"^\?\s*{final_id}(?:\s|$)", output, re.MULTILINE):
+        logger.error("KataGo rejected a move history: %s", output[-500:])
+        raise AIEngineError("KataGo 无法解析当前局面")
     match = re.search(rf"^=\s*{final_id}\s+([^\s]+)", output, re.MULTILINE)
     if not match:
         raise AIEngineError("KataGo 没有返回可用着法")
