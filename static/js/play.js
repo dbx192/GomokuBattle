@@ -9,6 +9,9 @@ let aiPollTimer = null;
 let shownResultKey = null;
 let isObserver = false;
 let clockTimer = null;
+let sessionStartedAt = null;
+let frozenTotal = null;
+let timeoutPending = false;
 
 const names = {gomoku: '五子棋', go: '围棋', xiangqi: '中国象棋', chess: '国际象棋'};
 
@@ -50,7 +53,7 @@ function start() {
         return;
     }
     API.post(`/api/games/${GAME}/sessions`, {difficulty: $('#difficultySelect').val()}).done(res => {
-        clearAiPolling(); shownResultKey = null; sessionId = res.data.game_id; playerColor = res.data.player_color; state = res.data.state; active(); monitorAiTurn();
+        clearAiPolling(); shownResultKey = null; sessionStartedAt = Date.now() / 1000; frozenTotal = null; sessionId = res.data.game_id; playerColor = res.data.player_color; state = res.data.state; active(); monitorAiTurn();
     }).fail(showError);
 }
 
@@ -96,9 +99,16 @@ function updatePlayerLabels() {
     $('#opponentLabel').text('对手');
     $('#opponentSide').text(isHost ? (room.guest_name || '等待加入') : (room.host_name || '对手'));
 }
+const REASON_TEXT = {five_in_a_row: '连成五子', checkmate: '将死', stalemate: '无子可走', resignation: '认输', timeout: '超时', chinese_scoring: '数子完毕', insufficient_material: '子力不足', seventyfive_moves: '75 回合规则', fivefold_repetition: '重复局面'};
+function reasonText(result) { return REASON_TEXT[result.reason] || '对局结束'; }
 function active() {
     const isTurn = state && state.current_player === playerColor && !state.result;
-    $('#gameStatus').text(state?.ai_error ? state.ai_error : (state?.result ? `对局结束 · ${state.result.reason}` : (isTurn ? '轮到你落子' : (room ? '等待对手落子' : 'AI 正在思考'))));
+    const statusText = state?.ai_error ? state.ai_error
+        : !state ? '请选择模式并开始'
+        : state.result ? `对局结束 · ${reasonText(state.result)}`
+        : (room && room.status !== 'playing') ? '等待对手加入'
+        : '对局中';
+    $('#gameStatus').text(statusText);
     $('#turnPill').text(state?.result ? '已结束' : (isTurn ? '你的回合' : '对手回合')).toggleClass('is-your-turn', !!isTurn);
     $('#playerSide').text(isObserver ? '旁观者' : (playerColor || '等待开始'));
     $('#resignBtn').prop('disabled', !state || !!state.result);
@@ -107,6 +117,7 @@ function active() {
     $('#passBtn').toggleClass('d-none', isObserver || GAME !== 'go').prop('disabled', isObserver);
     $('#resignBtn').prop('disabled', !state || !!state.result || isObserver);
     updatePlayerLabels();
+    renderClock();
     draw();
     showResultOnce();
 }
@@ -120,6 +131,8 @@ function monitorAiTurn() {
 }
 function activateRoom() {
     state = room.state;
+    sessionStartedAt = Date.now() / 1000;
+    frozenTotal = null;
     active();
     $('#roomInfo').removeClass('d-none').html(`<span>房间码</span><button type="button" id="copyRoomLink" class="room-code-button" title="复制邀请链接">${room.room_code}</button><small>点击房间码复制邀请链接</small>`);
     $('#copyRoomLink').on('click', copyRoomLink);
@@ -141,7 +154,7 @@ function activateRoom() {
             playerColor = isObserver ? null : data.color;
             $('#playerSide').text(isObserver ? '旁观者' : (playerColor || '等待开始'));
         }
-        if (data.state) { room = data; state = data.state; active(); renderClock(); }
+        if (data.state) { room = data; state = data.state; active(); }
     };
     socket.onclose = () => { if (room && room.status === 'playing') $('#gameStatus').text('连接已关闭，请刷新重连'); };
 }
@@ -188,6 +201,7 @@ function undoMove() {
     API.post(`/api/games/${GAME}/sessions/undo`, {game_id: sessionId}).done(res => {
         state = res.data.state;
         shownResultKey = null;
+        frozenTotal = null;
         bootstrap.Modal.getInstance(document.getElementById('gameResultModal'))?.hide();
         active();
         toastr.success('已撤回最近一轮');
@@ -205,7 +219,8 @@ function showResultOnce() {
     $('#gameResultHeader').toggleClass('bg-success', won).toggleClass('bg-danger', !won && !draw).toggleClass('bg-secondary', draw);
     $('#gameResultIcon').attr('class', `bi ${won ? 'bi-trophy-fill text-success' : draw ? 'bi-dash-circle text-secondary' : 'bi-emoji-frown text-danger'}`).css('font-size', '3rem');
     $('#gameResultText').text(won ? '你赢了！' : draw ? '和棋' : '对手获胜');
-    $('#gameResultDetail').text({five_in_a_row: '连成五子', checkmate: '将死', stalemate: '无子可走', resignation: '对方认输', timeout: '对方超时'}[result.reason] || '本局已结束');
+    const detail = {five_in_a_row: '连成五子', checkmate: '将死', stalemate: '无子可走', resignation: won ? '对方认输' : '你已认输', timeout: won ? '对方超时' : '超时判负'}[result.reason] || '本局已结束';
+    $('#gameResultDetail').text(detail);
     bootstrap.Modal.getOrCreateInstance(document.getElementById('gameResultModal')).show();
 }
 
@@ -289,22 +304,48 @@ function drawXiangqi() {
     if(!state)return;const chars={r:'车',h:'马',e:'相',a:'仕',k:'帅',c:'炮',p:'兵'};const last=recentMove();if(last&&Number.isInteger(last.from_row)&&Number.isInteger(last.to_row)){markRecentPoint(p+last.from_col*cell,p+last.from_row*cell,34);markRecentPoint(p+last.to_col*cell,p+last.to_row*cell,34);}state.board.forEach((row,r)=>row.forEach((piece,c)=>{if(piece==='0')return;const x=p+c*cell,y=p+r*cell,isRed=piece===piece.toUpperCase();ctx.save();ctx.shadowColor='rgba(18,9,4,.5)';ctx.shadowBlur=8;ctx.shadowOffsetY=3;const rim=ctx.createRadialGradient(x-8,y-10,3,x,y,31);if(isRed){rim.addColorStop(0,'#ffe3b8');rim.addColorStop(1,'#a9602f');}else{rim.addColorStop(0,'#6e5d47');rim.addColorStop(1,'#241b10');}ctx.fillStyle=rim;ctx.beginPath();ctx.arc(x,y,31,0,Math.PI*2);ctx.fill();ctx.restore();const face=ctx.createRadialGradient(x-7,y-9,2,x,y,26);if(isRed){face.addColorStop(0,'#fff4df');face.addColorStop(1,'#e7c69a');}else{face.addColorStop(0,'#f8edd9');face.addColorStop(1,'#d3bfa0');}ctx.beginPath();ctx.arc(x,y,26,0,Math.PI*2);ctx.fillStyle=face;ctx.fill();ctx.strokeStyle=isRed?'rgba(165,46,43,.55)':'rgba(41,37,31,.5)';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,21,0,Math.PI*2);ctx.stroke();ctx.save();ctx.fillStyle=isRed?'#b32424':'#201a14';ctx.font='700 30px "Noto Serif SC",serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.shadowColor='rgba(0,0,0,.18)';ctx.shadowBlur=1;ctx.shadowOffsetY=1;ctx.fillText(chars[piece.toLowerCase()],x,y+1);ctx.restore();}));
     if(selected){ctx.strokeStyle='#f0bf70';ctx.lineWidth=4;ctx.strokeRect(p+selected.col*cell-35,p+selected.row*cell-35,70,70);}
 }
+function fmtClock(seconds) {
+    const s = Math.max(0, Math.floor(seconds));
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+function startClockTicker() { if (!clockTimer) clockTimer = setInterval(renderClock, 250); }
+function stopClockTicker() { if (clockTimer) { clearInterval(clockTimer); clockTimer = null; } }
+function liveElapsed() {
+    const started = Number(state?.started_at || sessionStartedAt || 0);
+    return started ? Math.max(0, Date.now() / 1000 - started) : 0;
+}
+function totalElapsed() {
+    if (state?.result) {
+        if (frozenTotal == null) frozenTotal = liveElapsed();
+        return frozenTotal;
+    }
+    return liveElapsed();
+}
+function lastSpentText() {
+    const last = (state?.history || [])[(state?.history || []).length - 1];
+    return last?.spent != null ? `${Number(last.spent).toFixed(1)}s` : '—';
+}
 function renderClock() {
-    if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
-    if (!room?.clocks) { $('#clock').text('--:--'); return; }
-    const clocks = room.clocks;
-    if (clocks.mode !== 'per_move') {
-        $('#clock').text(`${Math.ceil(clocks[colors()[0]] || 0)}s / ${Math.ceil(clocks[colors()[1]] || 0)}s`);
+    if (!state) { $('#clockPanel').addClass('d-none'); stopClockTicker(); return; }
+    const clocks = room ? room.clocks : state._clocks;
+    $('#clockPanel').removeClass('d-none');
+    $('#totalClock').text(fmtClock(totalElapsed()));
+    $('#lastMoveClock').text(lastSpentText());
+    const finished = !!state.result || !clocks || clocks.mode !== 'per_move' || (room && room.status !== 'playing');
+    if (finished) {
+        $('#moveClock').text(state.result ? '00:00' : '--:--').removeClass('clock-low');
+        stopClockTicker();
         return;
     }
-    const update = () => {
-        const seconds = Math.max(0, Math.ceil((Number(clocks.deadline || 0) - Date.now() / 1000)));
-        $('#clock').text(`本手 ${seconds}s`);
-        if (seconds === 0 || state?.result) {
-            clearInterval(clockTimer);
-            clockTimer = null;
-        }
-    };
-    update();
-    if (!state?.result) clockTimer = setInterval(update, 250);
+    const remain = Math.max(0, Number(clocks.deadline || 0) - Date.now() / 1000);
+    $('#moveClock').text(fmtClock(remain)).toggleClass('clock-low', remain < 10);
+    startClockTicker();
+    // AI 模式没有后台超时任务：倒计时归零时拉取一次状态，让服务端判定超时判负。
+    if (!room && !timeoutPending && remain <= 0 && !state.result && !state.ai_error && state.current_player === playerColor) {
+        timeoutPending = true;
+        API.get(`/api/games/${GAME}/sessions/${sessionId}`).done(res => {
+            state = res.data.state;
+            active();
+        }).always(() => { timeoutPending = false; });
+    }
 }

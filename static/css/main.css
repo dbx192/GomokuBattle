@@ -154,7 +154,12 @@ body {
 .status-block { margin:25px 0 18px; padding:14px 16px; border-top:2px solid var(--gold); background:rgba(255,255,255,.035); display:grid; gap:5px; text-align:center; }
 .status-kicker { color:var(--text-muted); font:600 .65rem var(--font-mono); text-transform:uppercase; }
 .status-block strong { font-size:1rem; }
-.clock-display { color:var(--gold-bright); font:500 1.1rem var(--font-mono); letter-spacing:.04em; }
+.clock-panel { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px; margin-top:10px; }
+.clock-item { display:grid; gap:3px; padding:8px 4px; background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.08); border-radius:4px; }
+.clock-item span { color:var(--text-muted); font:600 .6rem var(--font-mono); white-space:nowrap; }
+.clock-item strong { color:var(--gold-bright); font:600 .92rem var(--font-mono); letter-spacing:.03em; }
+.clock-item strong.clock-low { color:#ff8177; animation:clock-pulse 1s steps(2, end) infinite; }
+@keyframes clock-pulse { 50% { opacity:.4; } }
 .room-info { display:grid; grid-template-columns:1fr auto; gap:3px 10px; padding:12px; margin:16px 0; background:rgba(212,165,116,.08); border:1px solid rgba(212,165,116,.18); }
 .room-info span { color:var(--text-muted); font-size:.72rem; grid-column:1/-1; }
 .room-info strong { color:var(--gold-bright); font:600 1.28rem var(--font-mono); letter-spacing:.14em; }

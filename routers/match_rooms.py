@@ -81,9 +81,11 @@ def _reset_turn_clock(state: dict, record: GameRecord) -> None:
 def _ensure_per_move_clock(state: dict, record: GameRecord, game_code: str) -> dict:
     clocks = dict(state.get("_clocks") or record.clocks or {})
     if clocks.get("mode") == "per_move" and clocks.get("deadline"):
+        state.setdefault("started_at", time.time())
         return clocks
     clocks = _clock_state(game_code)
     state["_clocks"] = clocks
+    state.setdefault("started_at", time.time())
     record.clocks = clocks
     return clocks
 

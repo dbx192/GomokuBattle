@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import timezone
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -55,6 +56,41 @@ def _player_color(code: str) -> str:
     return COLORS[code][0]
 
 
+def _clock_state(game_code: str) -> dict:
+    """Server-authoritative per-move clock, mirroring realtime-room clocks."""
+    seconds = GAME_CATALOG[game_code]["time_control"]["seconds"]
+    now = time.time()
+    return {"mode": "per_move", "seconds": seconds, "deadline": now + seconds, "turn_started_at": now}
+
+
+def _reset_move_clock(state: dict, game_code: str) -> None:
+    clocks = dict(state.get("_clocks") or _clock_state(game_code))
+    now = time.time()
+    clocks["deadline"] = now + clocks.get("seconds", GAME_CATALOG[game_code]["time_control"]["seconds"])
+    clocks["turn_started_at"] = now
+    state["_clocks"] = clocks
+
+
+def _consume_move_clock(state: dict, game_code: str) -> str | None:
+    """Flag a timeout loss when the player to move has exceeded the deadline."""
+    if state.get("result"):
+        return None
+    clocks = state.get("_clocks")
+    if not clocks or time.time() < clocks.get("deadline", 0):
+        return None
+    current = state["current_player"]
+    first, second = COLORS[game_code]
+    state["result"] = {"winner": second if current == first else first, "reason": "timeout"}
+    return current
+
+
+def _stamp_move_time(state: dict, turn_started_at: float) -> None:
+    """Record seconds spent on the move that was just applied."""
+    history = state.get("history")
+    if history:
+        history[-1]["spent"] = round(max(0.0, time.time() - turn_started_at), 2)
+
+
 def _get_record(db: Session, game_id: int, user_id: int) -> GameRecord:
     record = db.query(GameRecord).filter(
         GameRecord.id == game_id,
@@ -66,6 +102,8 @@ def _get_record(db: Session, game_id: int, user_id: int) -> GameRecord:
 
 
 def _persist(db: Session, record: GameRecord, state: dict, player_color: str):
+    # Some engines (gomoku/chess) rebuild the state dict and drop session metadata.
+    state.setdefault("started_at", time.time())
     state_store.save_state("session", record.id, state, state_store.AI_TTL_SECONDS)
     if not state.get("result"):
         return
@@ -127,12 +165,19 @@ def _complete_ai_turn(game_code: str, game_id: int, player_color: str) -> None:
             return
         try:
             engine = get_engine(game_code)
-            move = _ai_move(game_code, engine, state, state.get("ai_difficulty", "normal"))
+            turn_started = time.time()
+            difficulty = state.get("ai_difficulty") or "normal"
+            move = _ai_move(game_code, engine, state, difficulty)
             state = engine.apply_move(state, move, ai_color)
+            state.setdefault("ai_difficulty", difficulty)
+            _stamp_move_time(state, turn_started)
         except GameRuleError as exc:
             # Preserve the player's move and expose a useful error instead of
             # reverting the board or leaving the browser waiting indefinitely.
             state["ai_error"] = str(exc)
+        # A fresh deadline is required even on AI errors, otherwise the stale
+        # deadline from the player's previous turn would instantly time them out.
+        _reset_move_clock(state, game_code)
         _persist(db, record, state, player_color)
     finally:
         db.close()
@@ -162,6 +207,8 @@ def create_session(game_code: str, body: StartBody, db: Session = Depends(get_db
         raise HTTPException(status_code=503, detail=str(exc))
     player_color = body.player_color or _player_color(game_code)
     state["ai_difficulty"] = body.difficulty
+    state["started_at"] = time.time()
+    state["_clocks"] = _clock_state(game_code)
     if player_color not in COLORS[game_code]:
         raise HTTPException(status_code=400, detail="该棋种不支持此执子方")
     record = GameRecord(
@@ -179,7 +226,10 @@ def create_session(game_code: str, body: StartBody, db: Session = Depends(get_db
     db.refresh(record)
     state_store.save_state("session", record.id, state, state_store.AI_TTL_SECONDS)
     if state["current_player"] != player_color:
+        turn_started = time.time()
         state = engine.apply_move(state, _ai_move(game_code, engine, state, body.difficulty), state["current_player"])
+        _stamp_move_time(state, turn_started)
+        _reset_move_clock(state, game_code)
         _persist(db, record, state, player_color)
     return ResponseModel(data={"game_id": record.id, "player_color": player_color, "state": state, "rules": GAME_CATALOG[game_code]})
 
@@ -192,10 +242,19 @@ def move(game_code: str, body: MoveBody, background_tasks: BackgroundTasks, db: 
     state = state_store.load_state("session", record.id) or record.game_state
     engine = get_engine(game_code)
     player_color = _player_color(game_code)
+    if _consume_move_clock(state, game_code):
+        _persist(db, record, state, player_color)
+        return ResponseModel(data={"state": state})
+    turn_started = (state.get("_clocks") or {}).get("turn_started_at", time.time())
+    difficulty = state.get("ai_difficulty")
     try:
         state = engine.apply_move(state, body.move, player_color)
     except GameRuleError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    if difficulty:
+        state.setdefault("ai_difficulty", difficulty)
+    _stamp_move_time(state, turn_started)
+    _reset_move_clock(state, game_code)
     _persist(db, record, state, player_color)
     if not state.get("result") and state.get("phase", "playing") == "playing":
         background_tasks.add_task(_complete_ai_turn, game_code, record.id, player_color)
@@ -218,6 +277,9 @@ def undo_session(game_code: str, body: GameIdBody, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _reopen_record(db, record, previous_state)
     db.commit()
+    if previous_state.get("ai_difficulty"):
+        state.setdefault("ai_difficulty", previous_state["ai_difficulty"])
+    _reset_move_clock(state, game_code)
     _persist(db, record, state, _player_color(game_code))
     return ResponseModel(data={"state": state})
 
@@ -227,7 +289,13 @@ def session_state(game_code: str, game_id: int, db: Session = Depends(get_db), c
     record = _get_record(db, game_id, current_user.id)
     if record.game_code != game_code:
         raise HTTPException(status_code=404, detail="对局不存在")
-    return ResponseModel(data={"state": state_store.load_state("session", record.id) or record.game_state})
+    state = state_store.load_state("session", record.id) or record.game_state
+    # Polling finalizes a timeout: the client asks for state when its countdown
+    # reaches zero, so the server can record the loss without a background task.
+    if state and not state.get("result") and state.get("current_player") == _player_color(game_code):
+        if _consume_move_clock(state, game_code):
+            _persist(db, record, state, _player_color(game_code))
+    return ResponseModel(data={"state": state})
 
 
 @router.post("/{game_code}/sessions/pass", response_model=ResponseModel[dict])
@@ -236,10 +304,16 @@ def pass_turn(game_code: str, body: GameIdBody, background_tasks: BackgroundTask
         raise HTTPException(status_code=404, detail="仅围棋支持停一手")
     record = _get_record(db, body.game_id, current_user.id)
     state = state_store.load_state("session", record.id) or record.game_state
+    if _consume_move_clock(state, "go"):
+        _persist(db, record, state, "black")
+        return ResponseModel(data={"state": state})
+    turn_started = (state.get("_clocks") or {}).get("turn_started_at", time.time())
     try:
         state = get_engine("go").apply_move(state, {"pass": True}, "black")
     except GameRuleError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    _stamp_move_time(state, turn_started)
+    _reset_move_clock(state, "go")
     _persist(db, record, state, "black")
     if state.get("phase") == "playing" and not state.get("result"):
         background_tasks.add_task(_complete_ai_turn, "go", record.id, "black")

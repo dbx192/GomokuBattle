@@ -16,7 +16,7 @@
             </div>
             <div class="player-strip"><span class="player-dot player-dot-you"></span><div><small>你</small><strong id="playerSide">等待开始</strong></div><span class="turn-pill" id="turnPill">未开始</span></div>
             <div class="player-strip opponent"><span class="player-dot player-dot-ai"></span><div><small id="opponentLabel">对手</small><strong id="opponentSide">AI</strong></div></div>
-            <div class="status-block"><span class="status-kicker">对局状态</span><strong id="gameStatus">请选择模式并开始</strong><span id="clock" class="clock-display">--:--</span></div>
+            <div class="status-block"><span class="status-kicker">对局状态</span><strong id="gameStatus">请选择模式并开始</strong><div id="clockPanel" class="clock-panel d-none"><div class="clock-item"><span>本手倒计时</span><strong id="moveClock">--:--</strong></div><div class="clock-item"><span>总用时</span><strong id="totalClock">00:00</strong></div><div class="clock-item"><span>上一手用时</span><strong id="lastMoveClock">—</strong></div></div></div>
             <div id="roomInfo" class="room-info d-none"></div>
             <div id="roomControls" class="room-join d-none"><label>加入好友房间</label><div class="join-line"><input id="roomCodeInput" maxlength="6" class="form-control text-uppercase" placeholder="输入 6 位房间码"><button id="joinBtn" class="icon-button" title="加入房间"><i class="bi bi-arrow-right"></i></button></div></div>
             <div class="sidebar-actions"><button id="undoBtn" class="btn btn-subtle" disabled><i class="bi bi-arrow-counterclockwise"></i> 悔棋</button><button id="passBtn" class="btn btn-subtle d-none"><i class="bi bi-skip-forward"></i> 停一手</button><button id="rulesBtn" class="btn btn-subtle" type="button" data-bs-toggle="modal" data-bs-target="#rulesModal"><i class="bi bi-journal-text"></i> 棋类规则</button><button id="resignBtn" class="btn btn-danger-subtle" disabled><i class="bi bi-flag"></i> 认输</button></div>
@@ -44,4 +44,4 @@
     </div></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/play.js?v=20260920"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/play.js?v=20261026"></script>{% endblock %}
